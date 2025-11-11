@@ -4,7 +4,7 @@ import android.content.Context
 import android.net.Uri
 import androidx.activity.compose.rememberLauncherForActivityResult
 import androidx.activity.result.contract.ActivityResultContracts
-import androidx.activity.result.PickVisualMediaRequest // CORRECT IMPORT PROVIDED BY YOU
+import androidx.activity.result.PickVisualMediaRequest
 import androidx.compose.foundation.layout.*
 import androidx.compose.foundation.lazy.LazyRow
 import androidx.compose.foundation.lazy.items
@@ -37,6 +37,7 @@ fun ViajeDetailScreen(navController: NavController, viajeId: Long) {
     var fecha by remember { mutableStateOf("") }
     var descripcion by remember { mutableStateOf("") }
     var fotos by remember { mutableStateOf<List<FotoViaje>>(emptyList()) }
+    var showDeleteDialog by remember { mutableStateOf(false) } // State for the dialog
 
     // --- Photo Picker Launcher ---
     val photoPickerLauncher = rememberLauncherForActivityResult(
@@ -81,6 +82,36 @@ fun ViajeDetailScreen(navController: NavController, viajeId: Long) {
 
     LaunchedEffect(viajeId) {
         loadData()
+    }
+
+    // --- Confirmation Dialog ---
+    if (showDeleteDialog) {
+        AlertDialog(
+            onDismissRequest = { showDeleteDialog = false },
+            title = { Text("¿Confirmar borrado?") },
+            text = { Text("Esta acción no se puede deshacer.") },
+            confirmButton = {
+                Button(
+                    onClick = {
+                        scope.launch {
+                            try {
+                                SupabaseCliente.client.postgrest.from("viajes").delete { filter { eq("id", viajeId) } }
+                                showDeleteDialog = false
+                                navController.popBackStack()
+                            } catch (e: Exception) { e.printStackTrace() }
+                        }
+                    },
+                    colors = ButtonDefaults.buttonColors(containerColor = MaterialTheme.colorScheme.error)
+                ) {
+                    Text("Confirmar")
+                }
+            },
+            dismissButton = {
+                Button(onClick = { showDeleteDialog = false }) {
+                    Text("Cancelar")
+                }
+            }
+        )
     }
 
     Scaffold(
@@ -140,10 +171,7 @@ fun ViajeDetailScreen(navController: NavController, viajeId: Long) {
                 Spacer(modifier = Modifier.height(16.dp))
                 Button(
                     onClick = { 
-                        // CORRECTED as per your instruction
-                        photoPickerLauncher.launch(
-                            PickVisualMediaRequest(ActivityResultContracts.PickVisualMedia.ImageOnly)
-                        ) 
+                        photoPickerLauncher.launch(PickVisualMediaRequest(ActivityResultContracts.PickVisualMedia.ImageOnly))
                     },
                     modifier = Modifier.fillMaxWidth()
                 ) {
@@ -192,16 +220,7 @@ fun ViajeDetailScreen(navController: NavController, viajeId: Long) {
                 Spacer(modifier = Modifier.height(8.dp))
 
                 Button(
-                    onClick = {
-                        scope.launch {
-                            try {
-                                SupabaseCliente.client.postgrest.from("viajes").delete { 
-                                    filter { eq("id", viajeId) }
-                                }
-                                navController.popBackStack()
-                            } catch (e: Exception) { e.printStackTrace() }
-                        }
-                    },
+                    onClick = { showDeleteDialog = true }, // Show dialog on click
                     colors = ButtonDefaults.buttonColors(containerColor = MaterialTheme.colorScheme.error),
                     modifier = Modifier.fillMaxWidth()
                 ) {

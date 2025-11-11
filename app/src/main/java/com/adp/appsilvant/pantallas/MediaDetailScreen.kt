@@ -26,15 +26,14 @@ fun MediaDetailScreen(navController: NavController, mediaId: Long) {
     var selectedRating by remember { mutableStateOf(0f) }
     val scope = rememberCoroutineScope()
 
+    // --- State for the confirmation dialog ---
+    var showDeleteDialog by remember { mutableStateOf(false) }
+
     LaunchedEffect(mediaId) {
         try {
             val result = SupabaseCliente.client.postgrest
                 .from("media_vistos")
-                .select {
-                    filter {
-                        eq("id", mediaId)
-                    }
-                }
+                .select { filter { eq("id", mediaId) } }
                 .decodeSingleOrNull<MediaVisto>()
             
             mediaItem = result
@@ -45,6 +44,40 @@ fun MediaDetailScreen(navController: NavController, mediaId: Long) {
         } catch (e: Exception) {
             e.printStackTrace()
         }
+    }
+
+    // --- Confirmation Dialog ---
+    if (showDeleteDialog) {
+        AlertDialog(
+            onDismissRequest = { showDeleteDialog = false },
+            title = { Text("¿Confirmar borrado?") },
+            text = { Text("Esta acción no se puede deshacer.") },
+            confirmButton = {
+                Button(
+                    onClick = {
+                        scope.launch {
+                            try {
+                                SupabaseCliente.client.postgrest.from("media_vistos").delete { 
+                                    filter { eq("id", mediaId) }
+                                }
+                                showDeleteDialog = false
+                                navController.popBackStack()
+                            } catch (e: Exception) {
+                                e.printStackTrace()
+                            }
+                        }
+                    },
+                    colors = ButtonDefaults.buttonColors(containerColor = MaterialTheme.colorScheme.error)
+                ) {
+                    Text("Confirmar")
+                }
+            },
+            dismissButton = {
+                Button(onClick = { showDeleteDialog = false }) {
+                    Text("Cancelar")
+                }
+            }
+        )
     }
 
     Scaffold(
@@ -70,9 +103,7 @@ fun MediaDetailScreen(navController: NavController, mediaId: Long) {
                 AsyncImage(
                     model = "https://image.tmdb.org/t/p/w500${item.posterPath}",
                     contentDescription = item.titulo,
-                    modifier = Modifier
-                        .height(300.dp)
-                        .fillMaxWidth()
+                    modifier = Modifier.height(300.dp).fillMaxWidth()
                 )
                 Spacer(modifier = Modifier.height(16.dp))
 
@@ -109,17 +140,10 @@ fun MediaDetailScreen(navController: NavController, mediaId: Long) {
                     onClick = {
                         scope.launch {
                             try {
-                                val updates = mapOf(
-                                    "estado" to selectedStatus,
-                                    "valoracion" to selectedRating.roundToInt()
-                                )
-                                SupabaseCliente.client.postgrest
-                                    .from("media_vistos")
-                                    .update(updates) {
-                                        filter {
-                                            eq("id", mediaId)
-                                        }
-                                    }
+                                val updates = mapOf("estado" to selectedStatus, "valoracion" to selectedRating.roundToInt())
+                                SupabaseCliente.client.postgrest.from("media_vistos").update(updates) { 
+                                    filter { eq("id", mediaId) }
+                                }
                                 navController.popBackStack()
                             } catch (e: Exception) {
                                 e.printStackTrace()
@@ -133,24 +157,9 @@ fun MediaDetailScreen(navController: NavController, mediaId: Long) {
 
                 Spacer(modifier = Modifier.height(8.dp))
 
-                // Delete Button
+                // --- Delete Button now shows the dialog ---
                 Button(
-                    onClick = {
-                        scope.launch {
-                            try {
-                                SupabaseCliente.client.postgrest
-                                    .from("media_vistos")
-                                    .delete {
-                                        filter {
-                                            eq("id", mediaId)
-                                        }
-                                    }
-                                navController.popBackStack()
-                            } catch (e: Exception) {
-                                e.printStackTrace()
-                            }
-                        }
-                    },
+                    onClick = { showDeleteDialog = true },
                     colors = ButtonDefaults.buttonColors(containerColor = MaterialTheme.colorScheme.error),
                     modifier = Modifier.fillMaxWidth()
                 ) {

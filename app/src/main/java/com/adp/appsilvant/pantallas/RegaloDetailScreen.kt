@@ -38,6 +38,7 @@ fun RegaloDetailScreen(navController: NavController, regaloId: Long) {
     var descripcion by remember { mutableStateOf("") }
     var tipo by remember { mutableStateOf("") }
     var fotos by remember { mutableStateOf<List<FotoRegalo>>(emptyList()) }
+    var showDeleteDialog by remember { mutableStateOf(false) } // State for the dialog
 
     // --- Photo Picker Launcher ---
     val photoPickerLauncher = rememberLauncherForActivityResult(
@@ -83,6 +84,36 @@ fun RegaloDetailScreen(navController: NavController, regaloId: Long) {
 
     LaunchedEffect(regaloId) {
         loadData()
+    }
+
+    // --- Confirmation Dialog ---
+    if (showDeleteDialog) {
+        AlertDialog(
+            onDismissRequest = { showDeleteDialog = false },
+            title = { Text("¿Confirmar borrado?") },
+            text = { Text("Esta acción no se puede deshacer.") },
+            confirmButton = {
+                Button(
+                    onClick = {
+                        scope.launch {
+                            try {
+                                SupabaseCliente.client.postgrest.from("regalos").delete { filter { eq("id", regaloId) } }
+                                showDeleteDialog = false
+                                navController.popBackStack()
+                            } catch (e: Exception) { e.printStackTrace() }
+                        }
+                    },
+                    colors = ButtonDefaults.buttonColors(containerColor = MaterialTheme.colorScheme.error)
+                ) {
+                    Text("Confirmar")
+                }
+            },
+            dismissButton = {
+                Button(onClick = { showDeleteDialog = false }) {
+                    Text("Cancelar")
+                }
+            }
+        )
     }
 
     Scaffold(
@@ -148,9 +179,7 @@ fun RegaloDetailScreen(navController: NavController, regaloId: Long) {
                 Spacer(modifier = Modifier.height(16.dp))
                 Button(
                     onClick = { 
-                        photoPickerLauncher.launch(
-                            PickVisualMediaRequest(ActivityResultContracts.PickVisualMedia.ImageOnly)
-                        ) 
+                        photoPickerLauncher.launch(PickVisualMediaRequest(ActivityResultContracts.PickVisualMedia.ImageOnly))
                     },
                     modifier = Modifier.fillMaxWidth()
                 ) {
@@ -198,16 +227,7 @@ fun RegaloDetailScreen(navController: NavController, regaloId: Long) {
                 Spacer(modifier = Modifier.height(8.dp))
 
                 Button(
-                    onClick = {
-                        scope.launch {
-                            try {
-                                SupabaseCliente.client.postgrest.from("regalos").delete { 
-                                    filter { eq("id", regaloId) }
-                                }
-                                navController.popBackStack()
-                            } catch (e: Exception) { e.printStackTrace() }
-                        }
-                    },
+                    onClick = { showDeleteDialog = true }, // Show dialog on click
                     colors = ButtonDefaults.buttonColors(containerColor = MaterialTheme.colorScheme.error),
                     modifier = Modifier.fillMaxWidth()
                 ) {
