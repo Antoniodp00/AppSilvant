@@ -3,6 +3,7 @@ package com.adp.appsilvant
 import android.os.Bundle
 import androidx.activity.ComponentActivity
 import androidx.activity.compose.setContent
+import androidx.compose.animation.animateContentSize
 import androidx.compose.foundation.Image
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Column
@@ -13,8 +14,8 @@ import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.shape.CircleShape
-import androidx.compose.material3.Button
 import androidx.compose.material3.MaterialTheme
+import androidx.compose.material3.OutlinedButton
 import androidx.compose.material3.Surface
 import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
@@ -107,7 +108,8 @@ fun PantallaPrincipal(navController: NavController) {
     Column(
         modifier = Modifier
             .fillMaxSize()
-            .padding(16.dp),
+            .padding(16.dp)
+            .animateContentSize(), // Subtle animation
         horizontalAlignment = Alignment.CenterHorizontally,
         verticalArrangement = Arrangement.Center
     ) {
@@ -141,19 +143,19 @@ fun PantallaPrincipal(navController: NavController) {
 
         Spacer(modifier = Modifier.height(32.dp))
 
-        Button(onClick = { navController.navigate("viajes") }) {
+        OutlinedButton(onClick = { navController.navigate("viajes") }) {
             Text("Nuestros Viajes")
         }
 
         Spacer(modifier = Modifier.height(16.dp))
 
-        Button(onClick = { navController.navigate("regalos") }) {
+        OutlinedButton(onClick = { navController.navigate("regalos") }) {
             Text("Nuestros Regalos")
         }
 
         Spacer(modifier = Modifier.height(16.dp))
 
-        Button(onClick = { navController.navigate("media") }) {
+        OutlinedButton(onClick = { navController.navigate("media") }) {
             Text("Series y Películas")
         }
     }

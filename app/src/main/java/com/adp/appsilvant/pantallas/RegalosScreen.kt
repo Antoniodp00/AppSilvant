@@ -1,5 +1,8 @@
 package com.adp.appsilvant.pantallas
 
+import androidx.compose.animation.AnimatedVisibility
+import androidx.compose.animation.animateContentSize
+import androidx.compose.animation.fadeIn
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.layout.*
 import androidx.compose.foundation.lazy.LazyColumn
@@ -9,7 +12,9 @@ import androidx.compose.material.icons.automirrored.filled.ArrowBack
 import androidx.compose.material.icons.filled.Add
 import androidx.compose.material3.*
 import androidx.compose.runtime.*
+import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.text.style.TextAlign
 import androidx.compose.ui.unit.dp
 import androidx.navigation.NavController
 import com.adp.appsilvant.SupabaseCliente
@@ -21,9 +26,10 @@ import io.github.jan.supabase.postgrest.postgrest
 fun RegalosScreen(navController: NavController) {
 
     var listaRegalos by remember { mutableStateOf<List<Regalo>>(emptyList()) }
+    var isLoading by remember { mutableStateOf(true) }
 
-    // Refreshes the list when returning from the detail screen
     LaunchedEffect(navController.currentBackStackEntry) {
+        isLoading = true
         try {
             val regalos = SupabaseCliente.client.postgrest
                 .from("regalos")
@@ -32,6 +38,8 @@ fun RegalosScreen(navController: NavController) {
             listaRegalos = regalos
         } catch (e: Exception) {
             e.printStackTrace()
+        } finally {
+            isLoading = false
         }
     }
 
@@ -47,36 +55,51 @@ fun RegalosScreen(navController: NavController) {
             )
         },
         floatingActionButton = {
-            FloatingActionButton(onClick = { 
-                // Navigate to detail screen with -1 to signify "create mode"
-                navController.navigate("regalo_detail/-1") 
-            }) {
+            FloatingActionButton(onClick = { navController.navigate("regalo_detail/-1") }) {
                 Icon(Icons.Default.Add, contentDescription = "Añadir Regalo")
             }
         }
     ) { paddingValues ->
-        LazyColumn(
+        Box(
             modifier = Modifier
                 .fillMaxSize()
                 .padding(paddingValues),
-            contentPadding = PaddingValues(16.dp),
-            verticalArrangement = Arrangement.spacedBy(8.dp)
+            contentAlignment = Alignment.Center
         ) {
-            items(listaRegalos) { regalo ->
-                Card(
+            if (isLoading) {
+                CircularProgressIndicator()
+            } else if (listaRegalos.isEmpty()) {
+                Text(
+                    text = "Aún no hay regalos. ¡Pulsa el botón '+' para añadir el primero!",
+                    style = MaterialTheme.typography.bodyLarge,
+                    textAlign = TextAlign.Center,
+                    modifier = Modifier.padding(32.dp)
+                )
+            } else {
+                LazyColumn(
                     modifier = Modifier
-                        .fillMaxWidth()
-                        .clickable { 
-                            // Navigate to detail screen with the specific gift's ID
-                            navController.navigate("regalo_detail/${regalo.id}") 
-                        },
-                    elevation = CardDefaults.cardElevation(2.dp)
+                        .fillMaxSize()
+                        .animateContentSize(),
+                    contentPadding = PaddingValues(16.dp),
+                    verticalArrangement = Arrangement.spacedBy(8.dp)
                 ) {
-                    Column(modifier = Modifier.padding(12.dp)) {
-                        Text(regalo.nombreRegalo, style = MaterialTheme.typography.titleMedium)
-                        regalo.fecha?.let { Text(it) }
-                        regalo.descripcion?.let { Text(it, style = MaterialTheme.typography.bodySmall) }
-                        regalo.tipo?.let { Text("Tipo: $it", style = MaterialTheme.typography.bodySmall) }
+                    items(listaRegalos, key = { it.id }) { regalo ->
+                        AnimatedVisibility(visible = true, enter = fadeIn()) { 
+                            OutlinedCard(
+                                modifier = Modifier
+                                    .fillMaxWidth()
+                                    .clickable { 
+                                        navController.navigate("regalo_detail/${regalo.id}") 
+                                    }
+                            ) {
+                                Column(modifier = Modifier.padding(16.dp)) {
+                                    Text(regalo.nombreRegalo, style = MaterialTheme.typography.titleMedium)
+                                    regalo.fecha?.let { Text(it, style = MaterialTheme.typography.bodySmall) }
+                                    regalo.descripcion?.let { Text(it, style = MaterialTheme.typography.bodySmall) }
+                                    regalo.tipo?.let { Text("Tipo: $it", style = MaterialTheme.typography.bodySmall) }
+                                }
+                            }
+                        }
                     }
                 }
             }

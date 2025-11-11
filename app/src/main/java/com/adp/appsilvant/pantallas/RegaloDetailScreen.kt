@@ -22,6 +22,7 @@ import com.adp.appsilvant.data.FotoRegalo
 import com.adp.appsilvant.data.Regalo
 import io.github.jan.supabase.postgrest.postgrest
 import io.github.jan.supabase.storage.storage
+import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.launch
 import java.util.UUID
 
@@ -32,21 +33,21 @@ fun RegaloDetailScreen(navController: NavController, regaloId: Long) {
     val isCreateMode = regaloId == -1L
     val scope = rememberCoroutineScope()
     val context = LocalContext.current
+    val snackbarHostState = remember { SnackbarHostState() }
 
     var nombreRegalo by remember { mutableStateOf("") }
     var fecha by remember { mutableStateOf("") }
     var descripcion by remember { mutableStateOf("") }
     var tipo by remember { mutableStateOf("") }
     var fotos by remember { mutableStateOf<List<FotoRegalo>>(emptyList()) }
-    var showDeleteDialog by remember { mutableStateOf(false) } // State for the dialog
+    var showDeleteDialog by remember { mutableStateOf(false) }
 
-    // --- Photo Picker Launcher ---
     val photoPickerLauncher = rememberLauncherForActivityResult(
         contract = ActivityResultContracts.PickVisualMedia(),
         onResult = { uri ->
             if (uri != null && !isCreateMode) {
                 scope.launch {
-                    uploadPhotoRegalo(context, uri, regaloId) { newPhoto ->
+                    uploadPhotoRegalo(context, uri, regaloId, scope, snackbarHostState) { newPhoto ->
                         fotos = fotos + newPhoto
                     }
                 }
@@ -54,12 +55,10 @@ fun RegaloDetailScreen(navController: NavController, regaloId: Long) {
         }
     )
 
-    // --- Data Loading ---
     fun loadData() {
         if (!isCreateMode) {
             scope.launch {
                 try {
-                    // Load gift details
                     SupabaseCliente.client.postgrest
                         .from("regalos")
                         .select { filter { eq("id", regaloId) } }
@@ -69,14 +68,13 @@ fun RegaloDetailScreen(navController: NavController, regaloId: Long) {
                             descripcion = regalo.descripcion ?: ""
                             tipo = regalo.tipo ?: ""
                         }
-                    // Load associated photos
                     val photoResult = SupabaseCliente.client.postgrest
                         .from("fotos_regalos")
                         .select { filter { eq("regalo_id", regaloId) } }
                         .decodeList<FotoRegalo>()
                     fotos = photoResult
                 } catch (e: Exception) {
-                    e.printStackTrace()
+                    scope.launch { snackbarHostState.showSnackbar("Error al cargar datos: ${e.message}") }
                 }
             }
         }
@@ -86,7 +84,6 @@ fun RegaloDetailScreen(navController: NavController, regaloId: Long) {
         loadData()
     }
 
-    // --- Confirmation Dialog ---
     if (showDeleteDialog) {
         AlertDialog(
             onDismissRequest = { showDeleteDialog = false },
@@ -100,7 +97,9 @@ fun RegaloDetailScreen(navController: NavController, regaloId: Long) {
                                 SupabaseCliente.client.postgrest.from("regalos").delete { filter { eq("id", regaloId) } }
                                 showDeleteDialog = false
                                 navController.popBackStack()
-                            } catch (e: Exception) { e.printStackTrace() }
+                            } catch (e: Exception) { 
+                                scope.launch { snackbarHostState.showSnackbar("Error al borrar: ${e.message}") }
+                            }
                         }
                     },
                     colors = ButtonDefaults.buttonColors(containerColor = MaterialTheme.colorScheme.error)
@@ -126,7 +125,8 @@ fun RegaloDetailScreen(navController: NavController, regaloId: Long) {
                     }
                 }
             )
-        }
+        },
+        snackbarHost = { SnackbarHost(snackbarHostState) }
     ) { padding ->
         Column(
             modifier = Modifier
@@ -163,7 +163,6 @@ fun RegaloDetailScreen(navController: NavController, regaloId: Long) {
 
             Spacer(modifier = Modifier.height(16.dp))
             
-            // --- Photo Gallery and Upload Button (only in edit mode) ---
             if (!isCreateMode) {
                 Text("Galería", style = MaterialTheme.typography.titleMedium)
                 Spacer(modifier = Modifier.height(8.dp))
@@ -187,7 +186,7 @@ fun RegaloDetailScreen(navController: NavController, regaloId: Long) {
                 }
             }
 
-            Spacer(modifier = Modifier.weight(1f)) // Pushes buttons to the bottom
+            Spacer(modifier = Modifier.weight(1f))
 
             if (isCreateMode) {
                 Button(
@@ -197,7 +196,9 @@ fun RegaloDetailScreen(navController: NavController, regaloId: Long) {
                             try {
                                 SupabaseCliente.client.postgrest.from("regalos").insert(nuevoRegalo)
                                 navController.popBackStack()
-                            } catch (e: Exception) { e.printStackTrace() }
+                            } catch (e: Exception) { 
+                                scope.launch { snackbarHostState.showSnackbar("Error al guardar: ${e.message}") }
+                            }
                         }
                     },
                     enabled = nombreRegalo.isNotBlank(),
@@ -215,7 +216,9 @@ fun RegaloDetailScreen(navController: NavController, regaloId: Long) {
                                     filter { eq("id", regaloId) }
                                 }
                                 navController.popBackStack()
-                            } catch (e: Exception) { e.printStackTrace() }
+                            } catch (e: Exception) { 
+                                scope.launch { snackbarHostState.showSnackbar("Error al actualizar: ${e.message}") }
+                            }
                         }
                     },
                     enabled = nombreRegalo.isNotBlank(),
@@ -227,7 +230,7 @@ fun RegaloDetailScreen(navController: NavController, regaloId: Long) {
                 Spacer(modifier = Modifier.height(8.dp))
 
                 Button(
-                    onClick = { showDeleteDialog = true }, // Show dialog on click
+                    onClick = { showDeleteDialog = true },
                     colors = ButtonDefaults.buttonColors(containerColor = MaterialTheme.colorScheme.error),
                     modifier = Modifier.fillMaxWidth()
                 ) {
@@ -238,29 +241,34 @@ fun RegaloDetailScreen(navController: NavController, regaloId: Long) {
     }
 }
 
-// --- Helper function for photo upload logic ---
-suspend fun uploadPhotoRegalo(context: Context, uri: Uri, regaloId: Long, onComplete: (FotoRegalo) -> Unit) {
+suspend fun uploadPhotoRegalo(
+    context: Context, 
+    uri: Uri, 
+    regaloId: Long, 
+    scope: CoroutineScope,
+    snackbarHostState: SnackbarHostState,
+    onComplete: (FotoRegalo) -> Unit
+) {
     try {
         val fileBytes = context.contentResolver.openInputStream(uri)?.readBytes()
         if (fileBytes != null) {
             val fileName = "${UUID.randomUUID()}.jpg"
-            val bucket = SupabaseCliente.client.storage.from("fotos_regalos") // Correct bucket
+            val bucket = SupabaseCliente.client.storage.from("fotos_regalos")
 
-            // 1. Upload the file
             bucket.upload(fileName, fileBytes, upsert = false)
 
-            // 2. Get the public URL
             val publicUrl = bucket.publicUrl(fileName)
 
-            // 3. Save the URL to PostgREST
             val newFoto = FotoRegalo(regaloId = regaloId, urlFoto = publicUrl)
-            val savedFoto = SupabaseCliente.client.postgrest.from("fotos_regalos") // Correct table
+            val savedFoto = SupabaseCliente.client.postgrest.from("fotos_regalos")
                 .insert(newFoto)
                 .decodeSingle<FotoRegalo>()
             
             onComplete(savedFoto)
+        } else {
+             scope.launch { snackbarHostState.showSnackbar("No se pudo leer la imagen.") }
         }
     } catch (e: Exception) {
-        e.printStackTrace()
+        scope.launch { snackbarHostState.showSnackbar("Error al subir foto: ${e.message}") }
     }
 }

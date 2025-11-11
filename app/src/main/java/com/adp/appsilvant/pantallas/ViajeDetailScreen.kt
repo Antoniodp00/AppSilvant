@@ -3,8 +3,8 @@ package com.adp.appsilvant.pantallas
 import android.content.Context
 import android.net.Uri
 import androidx.activity.compose.rememberLauncherForActivityResult
-import androidx.activity.result.contract.ActivityResultContracts
 import androidx.activity.result.PickVisualMediaRequest
+import androidx.activity.result.contract.ActivityResultContracts
 import androidx.compose.foundation.layout.*
 import androidx.compose.foundation.lazy.LazyRow
 import androidx.compose.foundation.lazy.items
@@ -22,6 +22,7 @@ import com.adp.appsilvant.data.FotoViaje
 import com.adp.appsilvant.data.Viaje
 import io.github.jan.supabase.postgrest.postgrest
 import io.github.jan.supabase.storage.storage
+import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.launch
 import java.util.UUID
 
@@ -32,12 +33,13 @@ fun ViajeDetailScreen(navController: NavController, viajeId: Long) {
     val isCreateMode = viajeId == -1L
     val scope = rememberCoroutineScope()
     val context = LocalContext.current
+    val snackbarHostState = remember { SnackbarHostState() } // State for Snackbar
 
     var lugar by remember { mutableStateOf("") }
     var fecha by remember { mutableStateOf("") }
     var descripcion by remember { mutableStateOf("") }
     var fotos by remember { mutableStateOf<List<FotoViaje>>(emptyList()) }
-    var showDeleteDialog by remember { mutableStateOf(false) } // State for the dialog
+    var showDeleteDialog by remember { mutableStateOf(false) }
 
     // --- Photo Picker Launcher ---
     val photoPickerLauncher = rememberLauncherForActivityResult(
@@ -45,8 +47,8 @@ fun ViajeDetailScreen(navController: NavController, viajeId: Long) {
         onResult = { uri ->
             if (uri != null && !isCreateMode) {
                 scope.launch {
-                    uploadPhoto(context, uri, viajeId) { newPhoto ->
-                        fotos = fotos + newPhoto // Add the new photo to the list
+                    uploadPhoto(context, uri, viajeId, scope, snackbarHostState) { newPhoto ->
+                        fotos = fotos + newPhoto
                     }
                 }
             }
@@ -58,7 +60,6 @@ fun ViajeDetailScreen(navController: NavController, viajeId: Long) {
         if (!isCreateMode) {
             scope.launch {
                 try {
-                    // Load trip details
                     SupabaseCliente.client.postgrest
                         .from("viajes")
                         .select { filter { eq("id", viajeId) } }
@@ -67,14 +68,13 @@ fun ViajeDetailScreen(navController: NavController, viajeId: Long) {
                             fecha = viaje.fecha ?: ""
                             descripcion = viaje.descripcion ?: ""
                         }
-                    // Load associated photos
                     val photoResult = SupabaseCliente.client.postgrest
                         .from("fotos_viajes")
                         .select { filter { eq("viaje_id", viajeId) } }
                         .decodeList<FotoViaje>()
                     fotos = photoResult
                 } catch (e: Exception) {
-                    e.printStackTrace()
+                    scope.launch { snackbarHostState.showSnackbar("Error al cargar datos: ${e.message}") }
                 }
             }
         }
@@ -98,7 +98,9 @@ fun ViajeDetailScreen(navController: NavController, viajeId: Long) {
                                 SupabaseCliente.client.postgrest.from("viajes").delete { filter { eq("id", viajeId) } }
                                 showDeleteDialog = false
                                 navController.popBackStack()
-                            } catch (e: Exception) { e.printStackTrace() }
+                            } catch (e: Exception) { 
+                                scope.launch { snackbarHostState.showSnackbar("Error al borrar: ${e.message}") }
+                            }
                         }
                     },
                     colors = ButtonDefaults.buttonColors(containerColor = MaterialTheme.colorScheme.error)
@@ -124,7 +126,8 @@ fun ViajeDetailScreen(navController: NavController, viajeId: Long) {
                     }
                 }
             )
-        }
+        },
+        snackbarHost = { SnackbarHost(snackbarHostState) } // Add SnackbarHost to Scaffold
     ) { padding ->
         Column(
             modifier = Modifier
@@ -190,7 +193,9 @@ fun ViajeDetailScreen(navController: NavController, viajeId: Long) {
                             try {
                                 SupabaseCliente.client.postgrest.from("viajes").insert(nuevoViaje)
                                 navController.popBackStack()
-                            } catch (e: Exception) { e.printStackTrace() }
+                            } catch (e: Exception) { 
+                                scope.launch { snackbarHostState.showSnackbar("Error al guardar: ${e.message}") }
+                            }
                         }
                     },
                     enabled = lugar.isNotBlank(),
@@ -208,7 +213,9 @@ fun ViajeDetailScreen(navController: NavController, viajeId: Long) {
                                     filter { eq("id", viajeId) }
                                 }
                                 navController.popBackStack()
-                            } catch (e: Exception) { e.printStackTrace() }
+                            } catch (e: Exception) { 
+                                scope.launch { snackbarHostState.showSnackbar("Error al actualizar: ${e.message}") }
+                            }
                         }
                     },
                     enabled = lugar.isNotBlank(),
@@ -232,28 +239,34 @@ fun ViajeDetailScreen(navController: NavController, viajeId: Long) {
 }
 
 // --- Helper function for photo upload logic ---
-suspend fun uploadPhoto(context: Context, uri: Uri, viajeId: Long, onComplete: (FotoViaje) -> Unit) {
+suspend fun uploadPhoto(
+    context: Context, 
+    uri: Uri, 
+    viajeId: Long, 
+    scope: CoroutineScope,
+    snackbarHostState: SnackbarHostState,
+    onComplete: (FotoViaje) -> Unit
+) {
     try {
         val fileBytes = context.contentResolver.openInputStream(uri)?.readBytes()
         if (fileBytes != null) {
             val fileName = "${UUID.randomUUID()}.jpg"
             val bucket = SupabaseCliente.client.storage.from("fotos_viajes")
 
-            // 1. Upload the file
             bucket.upload(fileName, fileBytes, upsert = false)
 
-            // 2. Get the public URL
             val publicUrl = bucket.publicUrl(fileName)
 
-            // 3. Save the URL to PostgREST
             val newFoto = FotoViaje(viajeId = viajeId, urlFoto = publicUrl)
             val savedFoto = SupabaseCliente.client.postgrest.from("fotos_viajes")
                 .insert(newFoto)
                 .decodeSingle<FotoViaje>()
             
             onComplete(savedFoto)
+        } else {
+            scope.launch { snackbarHostState.showSnackbar("No se pudo leer la imagen.") }
         }
     } catch (e: Exception) {
-        e.printStackTrace()
+        scope.launch { snackbarHostState.showSnackbar("Error al subir foto: ${e.message}") }
     }
 }

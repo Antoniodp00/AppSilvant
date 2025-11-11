@@ -1,5 +1,8 @@
 package com.adp.appsilvant.pantallas
 
+import androidx.compose.animation.AnimatedVisibility
+import androidx.compose.animation.animateContentSize
+import androidx.compose.animation.fadeIn
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.layout.*
 import androidx.compose.foundation.lazy.LazyColumn
@@ -8,7 +11,9 @@ import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.automirrored.filled.ArrowBack
 import androidx.compose.material3.*
 import androidx.compose.runtime.*
+import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.text.style.TextAlign
 import androidx.compose.ui.unit.dp
 import androidx.navigation.NavController
 import coil.compose.AsyncImage
@@ -30,10 +35,14 @@ fun MediaScreen(navController: NavController) {
     var searchQuery by remember { mutableStateOf("") }
     var searchResults by remember { mutableStateOf<List<TMDbMediaItem>>(emptyList()) }
     var savedMedia by remember { mutableStateOf<List<MediaVisto>>(emptyList()) }
+    var isLoading by remember { mutableStateOf(true) } // State for loading
+
     val scope = rememberCoroutineScope()
 
+    // Function to fetch saved media from Supabase
     fun fetchSavedMedia() {
         scope.launch {
+            isLoading = true
             try {
                 val result = SupabaseCliente.client.postgrest
                     .from("media_vistos")
@@ -42,11 +51,13 @@ fun MediaScreen(navController: NavController) {
                 savedMedia = result
             } catch (e: Exception) {
                 e.printStackTrace()
+            } finally {
+                isLoading = false // Ensure loading is always turned off
             }
         }
     }
 
-    // Use LaunchedEffect with a changing key to refresh when navigating back
+    // Load saved media when the screen first appears or when returning to it
     LaunchedEffect(navController.currentBackStackEntry) {
         fetchSavedMedia()
     }
@@ -66,9 +77,10 @@ fun MediaScreen(navController: NavController) {
             )
         }
     ) { padding ->
-        Column(modifier = Modifier.padding(padding).padding(16.dp)) {
+        Column(modifier = Modifier.padding(padding).padding(horizontal = 16.dp)) {
 
-            Row(modifier = Modifier.fillMaxWidth()) {
+            // --- SEARCH UI ---
+            Row(modifier = Modifier.fillMaxWidth().padding(top = 16.dp)) {
                 OutlinedTextField(
                     value = searchQuery,
                     onValueChange = { searchQuery = it },
@@ -94,9 +106,10 @@ fun MediaScreen(navController: NavController) {
 
             Spacer(modifier = Modifier.height(16.dp))
 
+            // --- TABS to switch between Search and Saved ---
             var selectedTabIndex by remember { mutableStateOf(0) }
             val tabs = listOf("Resultados de Búsqueda", "Mis Vistas")
-
+            
             TabRow(selectedTabIndex = selectedTabIndex) {
                 tabs.forEachIndexed { index, title ->
                     Tab(
@@ -107,8 +120,7 @@ fun MediaScreen(navController: NavController) {
                 }
             }
 
-            Spacer(modifier = Modifier.height(16.dp))
-
+            // --- CONTENT AREA ---
             when (selectedTabIndex) {
                 0 -> SearchResultsList(searchResults) { item ->
                     val newMedia = MediaVisto(
@@ -120,16 +132,14 @@ fun MediaScreen(navController: NavController) {
                     scope.launch {
                         try {
                             SupabaseCliente.client.postgrest.from("media_vistos").insert(newMedia)
-                            fetchSavedMedia()
-                            selectedTabIndex = 1
+                            fetchSavedMedia() // Refresh the saved list
+                            selectedTabIndex = 1 // Switch to the saved list tab
                         } catch (e: Exception) {
                             e.printStackTrace()
                         }
                     }
                 }
-                1 -> SavedMediaList(savedMedia) { media ->
-                    navController.navigate("media_detail/${media.id}")
-                }
+                1 -> SavedMediaList(navController, savedMedia, isLoading)
             }
         }
     }
@@ -137,32 +147,69 @@ fun MediaScreen(navController: NavController) {
 
 @Composable
 private fun SearchResultsList(results: List<TMDbMediaItem>, onItemClick: (TMDbMediaItem) -> Unit) {
-    LazyColumn(verticalArrangement = Arrangement.spacedBy(8.dp)) {
-        items(results) { item ->
-            MediaListItem(item, Modifier.clickable { onItemClick(item) })
+    if (results.isEmpty()) {
+         Box(modifier = Modifier.fillMaxSize(), contentAlignment = Alignment.Center) {
+             Text(
+                text = "Busca una película o serie para empezar.",
+                style = MaterialTheme.typography.bodyLarge,
+                textAlign = TextAlign.Center,
+                modifier = Modifier.padding(32.dp)
+            )
+         }
+    } else {
+        LazyColumn(
+            modifier = Modifier.fillMaxSize().animateContentSize(), 
+            contentPadding = PaddingValues(vertical = 16.dp),
+            verticalArrangement = Arrangement.spacedBy(8.dp)
+        ) {
+            items(results, key = { it.id }) { item ->
+                AnimatedVisibility(visible = true, enter = fadeIn()) {
+                    MediaListItem(item, Modifier.clickable { onItemClick(item) })
+                }
+            }
         }
     }
 }
 
 @Composable
-private fun SavedMediaList(mediaList: List<MediaVisto>, onItemClick: (MediaVisto) -> Unit) {
-    LazyColumn(verticalArrangement = Arrangement.spacedBy(8.dp)) {
-        items(mediaList) { item ->
-            Card(
-                modifier = Modifier
-                    .fillMaxWidth()
-                    .clickable { onItemClick(item) } // Make the whole card clickable
+private fun SavedMediaList(navController: NavController, mediaList: List<MediaVisto>, isLoading: Boolean) {
+    Box(modifier = Modifier.fillMaxSize(), contentAlignment = Alignment.Center) {
+        if (isLoading) {
+            CircularProgressIndicator()
+        } else if (mediaList.isEmpty()) {
+            Text(
+                text = "Aún no has guardado ninguna película o serie.",
+                style = MaterialTheme.typography.bodyLarge,
+                textAlign = TextAlign.Center,
+                modifier = Modifier.padding(32.dp)
+            )
+        } else {
+            LazyColumn(
+                modifier = Modifier.fillMaxSize().animateContentSize(),
+                contentPadding = PaddingValues(vertical = 16.dp),
+                verticalArrangement = Arrangement.spacedBy(8.dp)
             ) {
-                Row(modifier = Modifier.padding(8.dp)) {
-                    AsyncImage(
-                        model = "https://image.tmdb.org/t/p/w500${item.posterPath}",
-                        contentDescription = item.titulo,
-                        modifier = Modifier.height(120.dp)
-                    )
-                    Spacer(modifier = Modifier.width(16.dp))
-                    Column {
-                        Text(item.titulo, style = MaterialTheme.typography.titleMedium)
-                        Text("Estado: ${item.estado}", style = MaterialTheme.typography.bodySmall)
+                items(mediaList, key = { it.id }) { item ->
+                     AnimatedVisibility(visible = true, enter = fadeIn()) {
+                        Card(
+                            modifier = Modifier
+                                .fillMaxWidth()
+                                .clickable { navController.navigate("media_detail/${item.id}") },
+                            colors = CardDefaults.outlinedCardColors()
+                        ) {
+                            Row(modifier = Modifier.padding(16.dp)) {
+                                AsyncImage(
+                                    model = "https://image.tmdb.org/t/p/w500${item.posterPath}",
+                                    contentDescription = item.titulo,
+                                    modifier = Modifier.height(120.dp)
+                                )
+                                Spacer(modifier = Modifier.width(16.dp))
+                                Column {
+                                    Text(item.titulo, style = MaterialTheme.typography.titleMedium)
+                                    Text("Estado: ${item.estado}", style = MaterialTheme.typography.bodySmall)
+                                }
+                            }
+                        }
                     }
                 }
             }
@@ -172,8 +219,8 @@ private fun SavedMediaList(mediaList: List<MediaVisto>, onItemClick: (MediaVisto
 
 @Composable
 private fun MediaListItem(item: TMDbMediaItem, modifier: Modifier = Modifier) {
-    Card(modifier = modifier.fillMaxWidth()) {
-        Row(modifier = Modifier.padding(8.dp)) {
+    Card(modifier = modifier.fillMaxWidth(), colors = CardDefaults.outlinedCardColors()) {
+        Row(modifier = Modifier.padding(16.dp)) {
             AsyncImage(
                 model = "https://image.tmdb.org/t/p/w500${item.posterPath}",
                 contentDescription = item.displayTitle,

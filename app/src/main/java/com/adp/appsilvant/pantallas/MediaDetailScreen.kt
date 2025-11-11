@@ -25,8 +25,8 @@ fun MediaDetailScreen(navController: NavController, mediaId: Long) {
     var selectedStatus by remember { mutableStateOf("viendo") }
     var selectedRating by remember { mutableStateOf(0f) }
     val scope = rememberCoroutineScope()
+    val snackbarHostState = remember { SnackbarHostState() }
 
-    // --- State for the confirmation dialog ---
     var showDeleteDialog by remember { mutableStateOf(false) }
 
     LaunchedEffect(mediaId) {
@@ -42,11 +42,10 @@ fun MediaDetailScreen(navController: NavController, mediaId: Long) {
                 selectedRating = it.valoracion?.toFloat() ?: 0f
             }
         } catch (e: Exception) {
-            e.printStackTrace()
+            scope.launch { snackbarHostState.showSnackbar("Error al cargar datos: ${e.message}") }
         }
     }
 
-    // --- Confirmation Dialog ---
     if (showDeleteDialog) {
         AlertDialog(
             onDismissRequest = { showDeleteDialog = false },
@@ -63,7 +62,7 @@ fun MediaDetailScreen(navController: NavController, mediaId: Long) {
                                 showDeleteDialog = false
                                 navController.popBackStack()
                             } catch (e: Exception) {
-                                e.printStackTrace()
+                                scope.launch { snackbarHostState.showSnackbar("Error al borrar: ${e.message}") }
                             }
                         }
                     },
@@ -90,7 +89,8 @@ fun MediaDetailScreen(navController: NavController, mediaId: Long) {
                     }
                 }
             )
-        }
+        },
+        snackbarHost = { SnackbarHost(snackbarHostState) }
     ) { padding ->
         mediaItem?.let { item ->
             Column(
@@ -146,7 +146,7 @@ fun MediaDetailScreen(navController: NavController, mediaId: Long) {
                                 }
                                 navController.popBackStack()
                             } catch (e: Exception) {
-                                e.printStackTrace()
+                                scope.launch { snackbarHostState.showSnackbar("Error al actualizar: ${e.message}") }
                             }
                         }
                     },
@@ -157,7 +157,6 @@ fun MediaDetailScreen(navController: NavController, mediaId: Long) {
 
                 Spacer(modifier = Modifier.height(8.dp))
 
-                // --- Delete Button now shows the dialog ---
                 Button(
                     onClick = { showDeleteDialog = true },
                     colors = ButtonDefaults.buttonColors(containerColor = MaterialTheme.colorScheme.error),
