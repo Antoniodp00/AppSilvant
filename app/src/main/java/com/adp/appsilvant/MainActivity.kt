@@ -41,7 +41,9 @@ import androidx.navigation.compose.rememberNavController
 import androidx.navigation.navArgument
 import com.adp.appsilvant.pantallas.MediaDetailScreen
 import com.adp.appsilvant.pantallas.MediaScreen
+import com.adp.appsilvant.pantallas.RegaloDetailScreen
 import com.adp.appsilvant.pantallas.RegalosScreen
+import com.adp.appsilvant.pantallas.ViajeDetailScreen
 import com.adp.appsilvant.pantallas.ViajesScreen
 import com.adp.appsilvant.ui.theme.AppSilvantTheme
 import kotlinx.coroutines.delay
@@ -68,15 +70,26 @@ class MainActivity : ComponentActivity() {
                         composable("media") {
                             MediaScreen(navController = navController)
                         }
-                        // Ruta para la pantalla de detalle
                         composable(
                             route = "media_detail/{mediaId}",
                             arguments = listOf(navArgument("mediaId") { type = NavType.LongType })
                         ) {
-                            val mediaId = it.arguments?.getLong("mediaId")
-                            if (mediaId != null) {
-                                MediaDetailScreen(navController = navController, mediaId = mediaId)
-                            }
+                            val mediaId = it.arguments?.getLong("mediaId") ?: -1L
+                            MediaDetailScreen(navController = navController, mediaId = mediaId)
+                        }
+                        composable(
+                            route = "viaje_detail/{viajeId}",
+                            arguments = listOf(navArgument("viajeId") { type = NavType.LongType })
+                        ) {
+                            val viajeId = it.arguments?.getLong("viajeId") ?: -1L
+                            ViajeDetailScreen(navController = navController, viajeId = viajeId)
+                        }
+                        composable(
+                            route = "regalo_detail/{regaloId}",
+                            arguments = listOf(navArgument("regaloId") { type = NavType.LongType })
+                        ) {
+                            val regaloId = it.arguments?.getLong("regaloId") ?: -1L
+                            RegaloDetailScreen(navController = navController, regaloId = regaloId)
                         }
                     }
                 }

@@ -36,7 +36,7 @@ fun MediaDetailScreen(navController: NavController, mediaId: Long) {
                     }
                 }
                 .decodeSingleOrNull<MediaVisto>()
-
+            
             mediaItem = result
             result?.let {
                 selectedStatus = it.estado
@@ -77,7 +77,7 @@ fun MediaDetailScreen(navController: NavController, mediaId: Long) {
                 Spacer(modifier = Modifier.height(16.dp))
 
                 Text(item.titulo, style = MaterialTheme.typography.headlineSmall, fontWeight = FontWeight.Bold)
-
+                
                 Spacer(modifier = Modifier.height(24.dp))
 
                 val statusOptions = listOf("Viendo", "Terminada")
@@ -113,13 +113,13 @@ fun MediaDetailScreen(navController: NavController, mediaId: Long) {
                                     "estado" to selectedStatus,
                                     "valoracion" to selectedRating.roundToInt()
                                 )
-                                // THE DEFINITIVE, CORRECT SYNTAX
-                                SupabaseCliente.client.postgrest.from("media_vistos")
-                                    .update(updates)
-                                    .filter {
-                                        eq("id", mediaId)
+                                SupabaseCliente.client.postgrest
+                                    .from("media_vistos")
+                                    .update(updates) {
+                                        filter {
+                                            eq("id", mediaId)
+                                        }
                                     }
-
                                 navController.popBackStack()
                             } catch (e: Exception) {
                                 e.printStackTrace()
@@ -129,6 +129,32 @@ fun MediaDetailScreen(navController: NavController, mediaId: Long) {
                     modifier = Modifier.fillMaxWidth()
                 ) {
                     Text("Guardar Cambios")
+                }
+
+                Spacer(modifier = Modifier.height(8.dp))
+
+                // Delete Button
+                Button(
+                    onClick = {
+                        scope.launch {
+                            try {
+                                SupabaseCliente.client.postgrest
+                                    .from("media_vistos")
+                                    .delete {
+                                        filter {
+                                            eq("id", mediaId)
+                                        }
+                                    }
+                                navController.popBackStack()
+                            } catch (e: Exception) {
+                                e.printStackTrace()
+                            }
+                        }
+                    },
+                    colors = ButtonDefaults.buttonColors(containerColor = MaterialTheme.colorScheme.error),
+                    modifier = Modifier.fillMaxWidth()
+                ) {
+                    Text("Borrar Item")
                 }
             }
         }
