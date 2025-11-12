@@ -96,6 +96,7 @@ fun RegaloDetailScreen(navController: NavController, regaloId: Long) {
                             try {
                                 SupabaseCliente.client.postgrest.from("regalos").delete { filter { eq("id", regaloId) } }
                                 showDeleteDialog = false
+                                navController.previousBackStackEntry?.savedStateHandle?.set("shouldRefresh", true)
                                 navController.popBackStack()
                             } catch (e: Exception) { 
                                 scope.launch { snackbarHostState.showSnackbar("Error al borrar: ${e.message}") }

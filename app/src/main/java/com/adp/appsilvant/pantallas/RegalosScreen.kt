@@ -17,6 +17,7 @@ import androidx.compose.ui.text.style.TextAlign
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.layout.ContentScale
 import androidx.navigation.NavController
+import androidx.navigation.compose.currentBackStackEntryAsState
 import coil.compose.AsyncImage
 import com.adp.appsilvant.SupabaseCliente
 import com.adp.appsilvant.data.Regalo
@@ -29,18 +30,25 @@ fun RegalosScreen(navController: NavController) {
 
     var listaRegalos by remember { mutableStateOf<List<Regalo>>(emptyList()) }
     var isLoading by remember { mutableStateOf(true) }
-
-    LaunchedEffect(navController.currentBackStackEntry) {
-        isLoading = true
-        try {
-            val regalos = SupabaseCliente.client.postgrest
-                .from("regalos")
-                .select(columns = Columns.raw("*, fotos_regalos(url_foto,limit=1)"))
-                .decodeList<Regalo>()
-            listaRegalos = regalos
-        } catch (e: Exception) {
-            e.printStackTrace()
-        } finally {
+    val currentBackStackEntry by navController.currentBackStackEntryAsState()
+    // 1. Lee el flag "shouldRefresh" que nos envía la pantalla de detalle
+    val shouldRefresh = currentBackStackEntry?.savedStateHandle?.get<Boolean>("shouldRefresh") ?: false
+    LaunchedEffect(currentBackStackEntry, shouldRefresh) {
+        // 3. Si 'shouldRefresh' es true, o si la lista está vacía, carga los datos
+        if (shouldRefresh || listaRegalos.isEmpty()) {
+            isLoading = true
+            try {
+                val regalos = SupabaseCliente.client.postgrest
+                    .from("regalos")
+                    .select()
+                    .decodeList<Regalo>()
+                listaRegalos = regalos
+                // 4. Resetea el flag para que no recargue en bucle
+                currentBackStackEntry?.savedStateHandle?.set("shouldRefresh", false)
+            } catch (e: Exception) {
+                e.printStackTrace()
+                listaRegalos = emptyList()
+            }
             isLoading = false
         }
     }

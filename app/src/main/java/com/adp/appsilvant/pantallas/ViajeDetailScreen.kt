@@ -212,6 +212,7 @@ fun ViajeDetailScreen(navController: NavController, viajeId: Long) {
                                 SupabaseCliente.client.postgrest.from("viajes").update(updates) { 
                                     filter { eq("id", viajeId) }
                                 }
+                                navController.previousBackStackEntry?.savedStateHandle?.set("shouldRefresh", true)
                                 navController.popBackStack()
                             } catch (e: Exception) { 
                                 scope.launch { snackbarHostState.showSnackbar("Error al actualizar: ${e.message}") }

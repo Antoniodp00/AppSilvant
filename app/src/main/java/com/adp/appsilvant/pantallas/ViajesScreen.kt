@@ -25,6 +25,7 @@ import io.github.jan.supabase.postgrest.query.Columns
 import kotlinx.coroutines.launch
 import androidx.compose.runtime.DisposableEffect
 import androidx.compose.runtime.rememberCoroutineScope
+import androidx.navigation.compose.currentBackStackEntryAsState
 
 @OptIn(ExperimentalMaterial3Api::class)
 @Composable
@@ -32,7 +33,8 @@ fun ViajesScreen(navController: NavController) {
 
     var listaViajes by remember { mutableStateOf<List<Viaje>>(emptyList()) }
     var isLoading by remember { mutableStateOf(true) }
-
+    val currentBackStackEntry by navController.currentBackStackEntryAsState()
+    val shouldRefresh = currentBackStackEntry?.savedStateHandle?.get<Boolean>("shouldRefresh") ?: false
     fun loadData() {
         isLoading = true
         try {
@@ -42,16 +44,22 @@ fun ViajesScreen(navController: NavController) {
     }
 
     // Carga inicial
-    LaunchedEffect(Unit) {
-        try {
-            val viajes = SupabaseCliente.client.postgrest
-                .from("viajes")
-                .select(columns = Columns.raw("*, fotos_viajes(url_foto,limit=1)"))
-                .decodeList<Viaje>()
-            listaViajes = viajes
-        } catch (e: Exception) {
-            e.printStackTrace()
-        } finally {
+    LaunchedEffect(currentBackStackEntry, shouldRefresh) {
+        // 3. Si 'shouldRefresh' es true, o si la lista está vacía, carga los datos
+        if (shouldRefresh || listaViajes.isEmpty()) {
+            isLoading = true
+            try {
+                val viajes = SupabaseCliente.client.postgrest
+                    .from("viajes")
+                    .select()
+                    .decodeList<Viaje>()
+                listaViajes = viajes
+                // 4. Resetea el flag para que no recargue en bucle
+                currentBackStackEntry?.savedStateHandle?.set("shouldRefresh", false)
+            } catch (e: Exception) {
+                e.printStackTrace()
+                listaViajes = emptyList()
+            }
             isLoading = false
         }
     }
