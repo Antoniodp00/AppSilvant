@@ -1,16 +1,13 @@
+// Archivo: app/src/main/java/com/adp/appsilvant/data/TimelineItem.kt
 package com.adp.appsilvant.data
 
 import java.time.LocalDate
 
-enum class TimelineType { VIAJE, REGALO }
+// Esta clase nos permite meter Viajes y Regalos en una misma lista
+sealed class TimelineItem {
+    // Todos los items de la línea de tiempo DEBEN tener una fecha para ordenarse
+    abstract val fecha: LocalDate?
 
-/**
- * Modelo unificado para la línea de tiempo de la pantalla principal.
- * Contiene el tipo (Viaje o Regalo), la fecha para ordenar y la entidad asociada.
- */
- data class TimelineItem(
-    val type: TimelineType,
-    val fecha: LocalDate,
-    val viaje: Viaje? = null,
-    val regalo: Regalo? = null
-)
+    data class ViajeItem(val viaje: Viaje, override val fecha: LocalDate?) : TimelineItem()
+    data class RegaloItem(val regalo: Regalo, override val fecha: LocalDate?) : TimelineItem()
+}

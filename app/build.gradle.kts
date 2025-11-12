@@ -75,11 +75,12 @@ dependencies {
     // Image Loading
     implementation(libs.coil.compose)
 
-    // Supabase
+    // BOM de Supabase 2.5.2
     implementation(platform(libs.supabase.bom))
-    implementation(libs.supabase.client) // <-- AÑADE ESTA LÍNEA
-    implementation(libs.supabase.postgrest)
-    implementation(libs.supabase.storage)
-    implementation(libs.supabase.auth)
-    implementation(libs.supabase.realtime)
+
+    // Librerías de Supabase, sin versión explícita
+    implementation("io.github.jan-tennert.supabase:postgrest-kt")
+    implementation("io.github.jan-tennert.supabase:gotrue-kt")
+    implementation("io.github.jan-tennert.supabase:storage-kt")
+    implementation("io.github.jan-tennert.supabase:realtime-kt")
 }

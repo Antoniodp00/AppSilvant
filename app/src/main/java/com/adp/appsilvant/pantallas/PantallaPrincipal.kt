@@ -1,6 +1,7 @@
 package com.adp.appsilvant.pantallas
 
-import androidx.compose.animation.animateContentSize
+import android.os.Build
+import androidx.annotation.RequiresApi
 import androidx.compose.foundation.Image
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.layout.*
@@ -25,202 +26,269 @@ import com.adp.appsilvant.R
 import com.adp.appsilvant.SupabaseCliente
 import com.adp.appsilvant.data.MediaVisto
 import com.adp.appsilvant.data.Regalo
+import com.adp.appsilvant.data.TimelineItem // <-- 1. IMPORTAR
 import com.adp.appsilvant.data.Viaje
-import com.adp.appsilvant.data.TimelineItem
-import com.adp.appsilvant.data.TimelineType
+import com.adp.appsilvant.utils.parseDate // <-- 2. IMPORTAR
 import io.github.jan.supabase.postgrest.postgrest
-import io.github.jan.supabase.postgrest.query.Columns
-import java.time.LocalDate
-import java.time.LocalDateTime
-import java.time.Duration
-import java.time.format.DateTimeFormatter
 import kotlinx.coroutines.delay
+import kotlinx.coroutines.launch
+import java.time.Duration
+import java.time.LocalDateTime
+import io.github.jan.supabase.postgrest.query.Columns
 
+@RequiresApi(Build.VERSION_CODES.VANILLA_ICE_CREAM)
 @Composable
 fun PantallaPrincipal(navController: NavController) {
 
+    val fechaInicio = LocalDateTime.of(2020, 10, 25, 18, 0)
+    val textoContador = calcularTiempoJuntos(fechaInicio)
+    val scope = rememberCoroutineScope()
+
+    // Estados para las listas
+    var listaViendo by remember { mutableStateOf<List<MediaVisto>>(emptyList()) }
+    // --- 3. NUEVO ESTADO PARA LA LÍNEA DE TIEMPO ---
     var timelineItems by remember { mutableStateOf<List<TimelineItem>>(emptyList()) }
     var isLoading by remember { mutableStateOf(true) }
 
-    // Cargar viajes y regalos y combinarlos en una línea de tiempo
     LaunchedEffect(Unit) {
-        isLoading = true
-        try {
-            val viajes = SupabaseCliente.client.postgrest
-                .from("viajes")
-                .select(columns = Columns.raw("*, fotos_viajes(url_foto,limit=1)"))
-                .decodeList<Viaje>()
+        scope.launch {
+            isLoading = true
+            try {
+                // --- 4. CARGAMOS TODO ---
 
-            val regalos = SupabaseCliente.client.postgrest
-                .from("regalos")
-                .select(columns = Columns.raw("*, fotos_regalos(url_foto,limit=1)"))
-                .decodeList<Regalo>()
+                val viajes = SupabaseCliente.client.postgrest["viajes"]
+                    .select(Columns.raw("*, fotos_viajes(url_foto, descripcion_foto)"))
+                    .decodeList<Viaje>()
 
-            val viajeItems = viajes.mapNotNull { v ->
-                val date = parseLocalDate(v.fecha)
-                date?.let { TimelineItem(type = TimelineType.VIAJE, fecha = it, viaje = v) }
+                val regalos = SupabaseCliente.client.postgrest["regalos"]
+                    .select(Columns.raw("*, fotos_regalos(url_foto, descripcion_foto)"))
+                    .decodeList<Regalo>()
+
+                // --- 5. COMBINAMOS Y ORDENAMOS ---
+                val viajesItems = viajes.map {
+                    TimelineItem.ViajeItem(it, parseDate(it.fecha))
+                }
+                val regalosItems = regalos.map {
+                    TimelineItem.RegaloItem(it, parseDate(it.fecha))
+                }
+
+                // Juntamos ambas listas, filtramos las que no tienen fecha y ordenamos
+                timelineItems = (viajesItems + regalosItems)
+                    .filter { it.fecha != null }
+                    .sortedByDescending { it.fecha }
+
+            } catch (e: Exception) {
+                e.printStackTrace()
             }
-            val regaloItems = regalos.mapNotNull { r ->
-                val date = parseLocalDate(r.fecha)
-                date?.let { TimelineItem(type = TimelineType.REGALO, fecha = it, regalo = r) }
-            }
-            timelineItems = (viajeItems + regaloItems).sortedByDescending { it.fecha }
-        } catch (e: Exception) {
-            e.printStackTrace()
-            timelineItems = emptyList()
-        } finally {
             isLoading = false
         }
     }
 
+    // --- 6. ACTUALIZAMOS LA UI ---
     LazyColumn(
         modifier = Modifier
             .fillMaxSize()
-            .animateContentSize(),
+            .padding(horizontal = 16.dp),
         horizontalAlignment = Alignment.CenterHorizontally
     ) {
-        // Sección superior del contador
+        // --- El Contador (Header) ---
         item {
-            ContadorSection()
+            Spacer(modifier = Modifier.height(32.dp))
+            Image(
+                painter = painterResource(id = R.drawable.silviaantonio),
+                contentDescription = "Foto de la pareja",
+                contentScale = ContentScale.Crop,
+                modifier = Modifier
+                    .size(150.dp)
+                    .clip(CircleShape)
+            )
+            Spacer(modifier = Modifier.height(16.dp))
+            Text(
+                text = "Llevamos juntos",
+                fontSize = 22.sp,
+                fontFamily = com.adp.appsilvant.ui.theme.Nunito,
+                fontWeight = FontWeight.Bold,
+                color = MaterialTheme.colorScheme.primary
+            )
+            Spacer(modifier = Modifier.height(8.dp))
+            Text(
+                text = textoContador,
+                fontSize = 26.sp,
+                fontFamily = com.adp.appsilvant.ui.theme.Nunito,
+                fontWeight = FontWeight.Bold,
+                textAlign = TextAlign.Center,
+                modifier = Modifier.fillMaxWidth()
+            )
+            Spacer(modifier = Modifier.height(24.dp))
+            Divider()
         }
 
-        // Cuerpo de la línea de tiempo
-        item { Spacer(modifier = Modifier.height(8.dp)) }
+        // --- Carrusel "Viendo Actualmente" (sigue igual) ---
+        if (listaViendo.isNotEmpty()) {
+            item {
+                Text(
+                    text = "Viendo actualmente",
+                    style = MaterialTheme.typography.titleLarge,
+                    fontFamily = com.adp.appsilvant.ui.theme.Nunito,
+                    modifier = Modifier.padding(vertical = 16.dp).fillMaxWidth()
+                )
+            }
+            item {
+                LazyRow(horizontalArrangement = Arrangement.spacedBy(16.dp)) {
+                    items(listaViendo) { media ->
+                        MediaItemCard(media, navController)
+                    }
+                }
+            }
+        }
+
+        // --- 7. NUEVA LÍNEA DE TIEMPO ---
+        item {
+            Text(
+                text = "Nuestra Línea de Tiempo",
+                style = MaterialTheme.typography.titleLarge,
+                fontFamily = com.adp.appsilvant.ui.theme.Nunito,
+                modifier = Modifier.padding(vertical = 16.dp).fillMaxWidth()
+            )
+        }
+
         if (isLoading) {
             item {
-                Box(modifier = Modifier.fillMaxWidth().padding(24.dp), contentAlignment = Alignment.Center) {
-                    CircularProgressIndicator()
-                }
+                CircularProgressIndicator(modifier = Modifier.padding(vertical = 32.dp))
             }
         } else if (timelineItems.isEmpty()) {
             item {
                 Text(
-                    text = "No hay elementos todavía.",
+                    text = "Aún no hay viajes ni regalos guardados.",
                     style = MaterialTheme.typography.bodyLarge,
                     textAlign = TextAlign.Center,
                     modifier = Modifier.padding(32.dp)
                 )
             }
         } else {
+            // Mostramos la lista combinada
             items(timelineItems) { item ->
-                TimelineCard(item = item, onClick = {
-                    when (item.type) {
-                        TimelineType.VIAJE -> item.viaje?.let { navController.navigate("viaje_detail/${it.id}") }
-                        TimelineType.REGALO -> item.regalo?.let { navController.navigate("regalo_detail/${it.id}") }
-                    }
-                })
+                when (item) {
+                    is TimelineItem.ViajeItem -> TimelineViajeCard(item.viaje, navController)
+                    is TimelineItem.RegaloItem -> TimelineRegaloCard(item.regalo, navController)
+                }
+                Spacer(modifier = Modifier.height(16.dp))
             }
-            item { Spacer(modifier = Modifier.height(16.dp)) }
+        }
+
+        // Espacio al final
+        item {
+            Spacer(modifier = Modifier.height(100.dp))
         }
     }
 }
 
+// --- 8. NUEVOS COMPOSABLES PARA LAS TARJETAS ---
 @Composable
-private fun ContadorSection() {
-    val fechaInicio = LocalDateTime.of(2025, 6, 7, 0, 0)
-    val textoContador = calcularTiempoJuntos(fechaInicio)
+fun TimelineViajeCard(viaje: Viaje, navController: NavController) {
+    val fotoUrl = viaje.fotos.firstOrNull()?.urlFoto
 
-    Column(
-        modifier = Modifier.padding(32.dp),
-        horizontalAlignment = Alignment.CenterHorizontally,
-        verticalArrangement = Arrangement.Center
-    ) {
-        Image(
-            painter = painterResource(id = R.drawable.silviaantonio),
-            contentDescription = "Foto de la pareja",
-            contentScale = ContentScale.Crop,
-            modifier = Modifier
-                .size(180.dp)
-                .clip(CircleShape)
-        )
-        Spacer(modifier = Modifier.height(24.dp))
-        Text(
-            text = "Llevamos juntos",
-            style = MaterialTheme.typography.titleLarge,
-            color = MaterialTheme.colorScheme.primary
-        )
-        Spacer(modifier = Modifier.height(8.dp))
-        Text(
-            text = textoContador,
-            fontSize = 24.sp,
-            fontWeight = FontWeight.Bold,
-            textAlign = TextAlign.Center,
-            modifier = Modifier.fillMaxWidth()
-        )
-    }
-}
-
-@Composable
-private fun TimelineCard(item: TimelineItem, onClick: () -> Unit) {
     OutlinedCard(
         modifier = Modifier
             .fillMaxWidth()
-            .padding(horizontal = 16.dp)
-            .clickable(onClick = onClick)
+            .clickable { navController.navigate("viaje_detail/${viaje.id}") }
     ) {
-        when (item.type) {
-            TimelineType.VIAJE -> {
-                val viaje = item.viaje!!
-                val portada = viaje.fotos.firstOrNull()?.urlFoto
-                AsyncImage(
-                    model = portada,
-                    contentDescription = "Foto de portada del viaje",
-                    modifier = Modifier
-                        .fillMaxWidth()
-                        .height(180.dp),
-                    contentScale = ContentScale.Crop
+        if (fotoUrl != null) {
+            AsyncImage(
+                model = fotoUrl,
+                contentDescription = viaje.lugar,
+                contentScale = ContentScale.Crop,
+                modifier = Modifier
+                    .fillMaxWidth()
+                    .height(180.dp)
+            )
+        }
+        Column(modifier = Modifier.padding(16.dp)) {
+            Text(
+                text = "Viaje: ${viaje.lugar}",
+                style = MaterialTheme.typography.titleMedium,
+                fontFamily = com.adp.appsilvant.ui.theme.Nunito,
+                fontWeight = FontWeight.Bold
+            )
+            viaje.fecha?.let {
+                Text(
+                    text = it,
+                    style = MaterialTheme.typography.bodySmall,
+                    fontFamily = com.adp.appsilvant.ui.theme.Nunito
                 )
-                Column(modifier = Modifier.padding(12.dp)) {
-                    Text(viaje.lugar, style = MaterialTheme.typography.titleMedium)
-                    viaje.fecha?.let { Text(it, style = MaterialTheme.typography.bodySmall) }
-                }
-            }
-            TimelineType.REGALO -> {
-                val regalo = item.regalo!!
-                val portada = regalo.fotos.firstOrNull()?.urlFoto
-                AsyncImage(
-                    model = portada,
-                    contentDescription = "Foto de portada del regalo",
-                    modifier = Modifier
-                        .fillMaxWidth()
-                        .height(180.dp),
-                    contentScale = ContentScale.Crop
-                )
-                Column(modifier = Modifier.padding(12.dp)) {
-                    Text(regalo.nombreRegalo, style = MaterialTheme.typography.titleMedium)
-                    regalo.fecha?.let { Text(it, style = MaterialTheme.typography.bodySmall) }
-                }
             }
         }
     }
 }
 
-private fun parseLocalDate(fechaStr: String?): LocalDate? {
-    if (fechaStr.isNullOrBlank()) return null
-    val patterns = listOf(
-        "yyyy-MM-dd",
-        "dd/MM/yyyy",
-        "yyyy-MM-dd'T'HH:mm:ss'Z'",
-        "yyyy-MM-dd HH:mm:ss"
-    )
-    for (p in patterns) {
-        try {
-            val fmt = DateTimeFormatter.ofPattern(p)
-            return when (p) {
-                "yyyy-MM-dd" , "dd/MM/yyyy" -> LocalDate.parse(fechaStr, fmt)
-                else -> LocalDate.parse(fechaStr.substring(0, 10))
+@Composable
+fun TimelineRegaloCard(regalo: Regalo, navController: NavController) {
+    val fotoUrl = regalo.fotos.firstOrNull()?.urlFoto
+
+    OutlinedCard(
+        modifier = Modifier
+            .fillMaxWidth()
+            .clickable { navController.navigate("regalo_detail/${regalo.id}") }
+    ) {
+        if (fotoUrl != null) {
+            AsyncImage(
+                model = fotoUrl,
+                contentDescription = regalo.nombreRegalo,
+                contentScale = ContentScale.Crop,
+                modifier = Modifier
+                    .fillMaxWidth()
+                    .height(180.dp)
+            )
+        }
+        Column(modifier = Modifier.padding(16.dp)) {
+            Text(
+                text = "Regalo: ${regalo.nombreRegalo}",
+                style = MaterialTheme.typography.titleMedium,
+                fontFamily = com.adp.appsilvant.ui.theme.Nunito,
+                fontWeight = FontWeight.Bold
+            )
+            regalo.fecha?.let {
+                Text(
+                    text = it,
+                    style = MaterialTheme.typography.bodySmall,
+                    fontFamily = com.adp.appsilvant.ui.theme.Nunito
+                )
             }
-        } catch (_: Exception) { /* try next */ }
+        }
     }
-    return try {
-        LocalDate.parse(fechaStr)
-    } catch (_: Exception) {
-        null
+}
+
+
+// (El resto de composables: MediaItemCard, calcularTiempoJuntos, etc. se quedan igual)
+@Composable
+fun MediaItemCard(media: MediaVisto, navController: NavController) {
+    OutlinedCard(
+        modifier = Modifier
+            .size(width = 140.dp, height = 240.dp)
+            .clickable { navController.navigate("media_detail/${media.id}") }
+    ) {
+        Column {
+            AsyncImage(
+                model = "https://image.tmdb.org/t/p/w500${media.posterPath}",
+                contentDescription = media.titulo,
+                contentScale = ContentScale.Crop,
+                modifier = Modifier
+                    .fillMaxWidth()
+                    .height(180.dp)
+            )
+            Text(
+                text = media.titulo,
+                style = MaterialTheme.typography.bodyMedium,
+                fontFamily = com.adp.appsilvant.ui.theme.Nunito,
+                fontWeight = FontWeight.Bold,
+                modifier = Modifier.padding(8.dp)
+            )
+        }
     }
 }
 
 @Composable
-private fun calcularTiempoJuntos(fechaInicio: LocalDateTime): String {
+fun calcularTiempoJuntos(fechaInicio: LocalDateTime): String {
     var textoContador by remember { mutableStateOf(obtenerTextoDuracion(fechaInicio)) }
 
     LaunchedEffect(true) {
@@ -229,7 +297,6 @@ private fun calcularTiempoJuntos(fechaInicio: LocalDateTime): String {
             delay(1000)
         }
     }
-
     return textoContador
 }
 
@@ -239,6 +306,6 @@ private fun obtenerTextoDuracion(inicio: LocalDateTime): String {
     val dias = duracion.toDays()
     val horas = duracion.toHours() % 24
     val minutos = duracion.toMinutes() % 60
-    val segundos = (duracion.seconds % 60)
-    return "$dias días\n$horas horas, $minutos minutos y $segundos segundos"
+    val segundos = duracion.toSeconds() % 60
+    return "$dias días, $horas horas, $minutos min y $segundos seg"
 }
