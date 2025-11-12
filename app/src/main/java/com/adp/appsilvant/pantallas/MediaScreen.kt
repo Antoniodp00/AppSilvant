@@ -7,8 +7,6 @@ import androidx.compose.foundation.clickable
 import androidx.compose.foundation.layout.*
 import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.items
-import androidx.compose.material.icons.Icons
-import androidx.compose.material.icons.automirrored.filled.ArrowBack
 import androidx.compose.material3.*
 import androidx.compose.runtime.*
 import androidx.compose.ui.Alignment
@@ -35,11 +33,10 @@ fun MediaScreen(navController: NavController) {
     var searchQuery by remember { mutableStateOf("") }
     var searchResults by remember { mutableStateOf<List<TMDbMediaItem>>(emptyList()) }
     var savedMedia by remember { mutableStateOf<List<MediaVisto>>(emptyList()) }
-    var isLoading by remember { mutableStateOf(true) } // State for loading
+    var isLoading by remember { mutableStateOf(true) }
 
     val scope = rememberCoroutineScope()
 
-    // Function to fetch saved media from Supabase
     fun fetchSavedMedia() {
         scope.launch {
             isLoading = true
@@ -52,95 +49,79 @@ fun MediaScreen(navController: NavController) {
             } catch (e: Exception) {
                 e.printStackTrace()
             } finally {
-                isLoading = false // Ensure loading is always turned off
+                isLoading = false
             }
         }
     }
 
-    // Load saved media when the screen first appears or when returning to it
     LaunchedEffect(navController.currentBackStackEntry) {
         fetchSavedMedia()
     }
 
-    Scaffold(
-        topBar = {
-            TopAppBar(
-                title = { Text("Series y Películas") },
-                navigationIcon = {
-                    IconButton(onClick = { navController.popBackStack() }) {
-                        Icon(
-                            imageVector = Icons.AutoMirrored.Filled.ArrowBack,
-                            contentDescription = "Volver atrás"
-                        )
-                    }
-                }
+    // The Scaffold is now in MainActivity, so we just use a Column here
+    Column(modifier = Modifier.padding(horizontal = 16.dp)) {
+
+        // --- SEARCH UI ---
+        Row(modifier = Modifier.fillMaxWidth().padding(top = 16.dp)) {
+            OutlinedTextField(
+                value = searchQuery,
+                onValueChange = { searchQuery = it },
+                label = { Text("Buscar película o serie") },
+                modifier = Modifier.weight(1f)
             )
+            Spacer(modifier = Modifier.width(8.dp))
+            Button(onClick = {
+                scope.launch {
+                    try {
+                        val response: TMDbSearchResponse = TMDbCliente.client.get("search/multi") {
+                            parameter("query", searchQuery)
+                        }.body()
+                        searchResults = response.results.filter { it.mediaType == "movie" || it.mediaType == "tv" }
+                    } catch (e: Exception) {
+                        e.printStackTrace()
+                    }
+                }
+            }) {
+                Text("Buscar")
+            }
         }
-    ) { padding ->
-        Column(modifier = Modifier.padding(padding).padding(horizontal = 16.dp)) {
 
-            // --- SEARCH UI ---
-            Row(modifier = Modifier.fillMaxWidth().padding(top = 16.dp)) {
-                OutlinedTextField(
-                    value = searchQuery,
-                    onValueChange = { searchQuery = it },
-                    label = { Text("Buscar película o serie") },
-                    modifier = Modifier.weight(1f)
+        Spacer(modifier = Modifier.height(16.dp))
+
+        // --- TABS to switch between Search and Saved ---
+        var selectedTabIndex by remember { mutableStateOf(0) }
+        val tabs = listOf("Resultados de Búsqueda", "Mis Vistas")
+        
+        TabRow(selectedTabIndex = selectedTabIndex) {
+            tabs.forEachIndexed { index, title ->
+                Tab(
+                    selected = selectedTabIndex == index,
+                    onClick = { selectedTabIndex = index },
+                    text = { Text(title) }
                 )
-                Spacer(modifier = Modifier.width(8.dp))
-                Button(onClick = {
-                    scope.launch {
-                        try {
-                            val response: TMDbSearchResponse = TMDbCliente.client.get("search/multi") {
-                                parameter("query", searchQuery)
-                            }.body()
-                            searchResults = response.results.filter { it.mediaType == "movie" || it.mediaType == "tv" }
-                        } catch (e: Exception) {
-                            e.printStackTrace()
-                        }
-                    }
-                }) {
-                    Text("Buscar")
-                }
             }
+        }
 
-            Spacer(modifier = Modifier.height(16.dp))
-
-            // --- TABS to switch between Search and Saved ---
-            var selectedTabIndex by remember { mutableStateOf(0) }
-            val tabs = listOf("Resultados de Búsqueda", "Mis Vistas")
-            
-            TabRow(selectedTabIndex = selectedTabIndex) {
-                tabs.forEachIndexed { index, title ->
-                    Tab(
-                        selected = selectedTabIndex == index,
-                        onClick = { selectedTabIndex = index },
-                        text = { Text(title) }
-                    )
-                }
-            }
-
-            // --- CONTENT AREA ---
-            when (selectedTabIndex) {
-                0 -> SearchResultsList(searchResults) { item ->
-                    val newMedia = MediaVisto(
-                        mediaId = item.id,
-                        titulo = item.displayTitle,
-                        tipo = item.mediaType,
-                        posterPath = item.posterPath
-                    )
-                    scope.launch {
-                        try {
-                            SupabaseCliente.client.postgrest.from("media_vistos").insert(newMedia)
-                            fetchSavedMedia() // Refresh the saved list
-                            selectedTabIndex = 1 // Switch to the saved list tab
-                        } catch (e: Exception) {
-                            e.printStackTrace()
-                        }
+        // --- CONTENT AREA ---
+        when (selectedTabIndex) {
+            0 -> SearchResultsList(searchResults) { item ->
+                val newMedia = MediaVisto(
+                    mediaId = item.id,
+                    titulo = item.displayTitle,
+                    tipo = item.mediaType,
+                    posterPath = item.posterPath
+                )
+                scope.launch {
+                    try {
+                        SupabaseCliente.client.postgrest.from("media_vistos").insert(newMedia)
+                        fetchSavedMedia()
+                        selectedTabIndex = 1
+                    } catch (e: Exception) {
+                        e.printStackTrace()
                     }
                 }
-                1 -> SavedMediaList(navController, savedMedia, isLoading)
             }
+            1 -> SavedMediaList(navController, savedMedia, isLoading)
         }
     }
 }
@@ -191,11 +172,10 @@ private fun SavedMediaList(navController: NavController, mediaList: List<MediaVi
             ) {
                 items(mediaList, key = { it.id }) { item ->
                      AnimatedVisibility(visible = true, enter = fadeIn()) {
-                        Card(
+                        OutlinedCard(
                             modifier = Modifier
                                 .fillMaxWidth()
-                                .clickable { navController.navigate("media_detail/${item.id}") },
-                            colors = CardDefaults.outlinedCardColors()
+                                .clickable { navController.navigate("media_detail/${item.id}") }
                         ) {
                             Row(modifier = Modifier.padding(16.dp)) {
                                 AsyncImage(
@@ -219,7 +199,7 @@ private fun SavedMediaList(navController: NavController, mediaList: List<MediaVi
 
 @Composable
 private fun MediaListItem(item: TMDbMediaItem, modifier: Modifier = Modifier) {
-    Card(modifier = modifier.fillMaxWidth(), colors = CardDefaults.outlinedCardColors()) {
+    OutlinedCard(modifier = modifier.fillMaxWidth()) {
         Row(modifier = Modifier.padding(16.dp)) {
             AsyncImage(
                 model = "https://image.tmdb.org/t/p/w500${item.posterPath}",
