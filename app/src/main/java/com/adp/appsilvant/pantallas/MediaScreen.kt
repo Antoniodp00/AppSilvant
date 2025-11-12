@@ -19,27 +19,60 @@ import com.adp.appsilvant.SupabaseCliente
 import com.adp.appsilvant.TMDbCliente
 import com.adp.appsilvant.data.MediaVisto
 import com.adp.appsilvant.data.TMDbMediaItem
-import com.adp.appsilvant.data.TMDbSearchResponse
+import com.adp.appsilvant.data.PagedResponse
+import com.adp.appsilvant.data.MovieResult
+import com.adp.appsilvant.data.TvResult
 import io.github.jan.supabase.postgrest.postgrest
 import io.ktor.client.call.body
 import io.ktor.client.request.get
 import io.ktor.client.request.parameter
+import io.ktor.http.path
 import kotlinx.coroutines.launch
 
 @OptIn(ExperimentalMaterial3Api::class)
 @Composable
 fun MediaScreen(navController: NavController) {
 
-    var searchQuery by remember { mutableStateOf("") }
-    var searchResults by remember { mutableStateOf<List<TMDbMediaItem>>(emptyList()) }
+    // Estados base
     var savedMedia by remember { mutableStateOf<List<MediaVisto>>(emptyList()) }
-    var isLoading by remember { mutableStateOf(true) }
+    var isLoadingSaved by remember { mutableStateOf(true) }
+
+    // Estados para pestañas de TMDb
+    var selectedTabIndex by remember { mutableStateOf(0) } // 0=Populares, 1=Más Valoradas, 2=Mis Vistas
+
+    var populares by remember { mutableStateOf<List<TMDbMediaItem>>(emptyList()) }
+    var topRated by remember { mutableStateOf<List<TMDbMediaItem>>(emptyList()) }
+    var tvPopular by remember { mutableStateOf<List<TMDbMediaItem>>(emptyList()) } // cache para "Serie Aleatoria"
+
+    var isLoadingPopular by remember { mutableStateOf(false) }
+    var isLoadingTopRated by remember { mutableStateOf(false) }
+
+    var errorPopular by remember { mutableStateOf<String?>(null) }
+    var errorTopRated by remember { mutableStateOf<String?>(null) }
 
     val scope = rememberCoroutineScope()
 
+    // Modelos de TMDb se definen a nivel superior en com.adp.appsilvant.data.TMDbModels.kt
+
+    fun MovieResult.toMediaItem() = TMDbMediaItem(
+        id = id,
+        mediaType = "movie",
+        name = null,
+        title = title,
+        posterPath = posterPath
+    )
+
+    fun TvResult.toMediaItem() = TMDbMediaItem(
+        id = id,
+        mediaType = "tv",
+        name = name,
+        title = null,
+        posterPath = posterPath
+    )
+
     fun fetchSavedMedia() {
         scope.launch {
-            isLoading = true
+            isLoadingSaved = true
             try {
                 val result = SupabaseCliente.client.postgrest
                     .from("media_vistos")
@@ -49,49 +82,122 @@ fun MediaScreen(navController: NavController) {
             } catch (e: Exception) {
                 e.printStackTrace()
             } finally {
-                isLoading = false
+                isLoadingSaved = false
             }
         }
     }
 
+    suspend fun loadPopularIfNeeded(force: Boolean = false) {
+        if (populares.isNotEmpty() && !force) return
+        isLoadingPopular = true
+        errorPopular = null
+        try {
+            val response: PagedResponse<MovieResult> = TMDbCliente.client.get("movie/popular").body()
+            populares = response.results.map { it.toMediaItem() }
+        } catch (e: Exception) {
+            errorPopular = e.message
+        } finally {
+            isLoadingPopular = false
+        }
+    }
+
+    suspend fun loadTopRatedIfNeeded(force: Boolean = false) {
+        if (topRated.isNotEmpty() && !force) return
+        isLoadingTopRated = true
+        errorTopRated = null
+        try {
+            val response: PagedResponse<MovieResult> = TMDbCliente.client.get("movie/top_rated").body()
+            topRated = response.results.map { it.toMediaItem() }
+        } catch (e: Exception) {
+            errorTopRated = e.message
+        } finally {
+            isLoadingTopRated = false
+        }
+    }
+
+    suspend fun loadTvPopularIfNeeded(force: Boolean = false) {
+        if (tvPopular.isNotEmpty() && !force) return
+        try {
+            val response: PagedResponse<TvResult> = TMDbCliente.client.get("tv/popular").body()
+            tvPopular = response.results.map { it.toMediaItem() }
+        } catch (_: Exception) {
+            // silencioso: botón aleatorio manejará fallback
+        }
+    }
+
+    // Cargar "Mis Vistas" al entrar a la pantalla
     LaunchedEffect(navController.currentBackStackEntry) {
         fetchSavedMedia()
     }
 
-    // The Scaffold is now in MainActivity, so we just use a Column here
-    Column(modifier = Modifier.padding(horizontal = 16.dp)) {
+    // Cargar datos al cambiar de pestaña cuando sea necesario
+    LaunchedEffect(selectedTabIndex) {
+        when (selectedTabIndex) {
+            0 -> loadPopularIfNeeded()
+            1 -> loadTopRatedIfNeeded()
+            2 -> { /* Mis Vistas: ya se carga con Supabase */ }
+        }
+    }
 
-        // --- SEARCH UI ---
-        Row(modifier = Modifier.fillMaxWidth().padding(top = 16.dp)) {
-            OutlinedTextField(
-                value = searchQuery,
-                onValueChange = { searchQuery = it },
-                label = { Text("Buscar película o serie") },
-                modifier = Modifier.weight(1f)
-            )
-            Spacer(modifier = Modifier.width(8.dp))
+    // Contenido principal
+    Column(modifier = Modifier.padding(horizontal = 16.dp)) {
+        Spacer(modifier = Modifier.height(12.dp))
+        // --- Botones Aleatorios y acción de búsqueda opcional ---
+        Row(modifier = Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.spacedBy(8.dp)) {
             Button(onClick = {
                 scope.launch {
-                    try {
-                        val response: TMDbSearchResponse = TMDbCliente.client.get("search/multi") {
-                            parameter("query", searchQuery)
-                        }.body()
-                        searchResults = response.results.filter { it.mediaType == "movie" || it.mediaType == "tv" }
-                    } catch (e: Exception) {
-                        e.printStackTrace()
+                    // Asegura popular cargado
+                    loadPopularIfNeeded()
+                    val item = populares.randomOrNull()
+                    if (item != null) {
+                        try {
+                            val nuevo = com.adp.appsilvant.data.MediaVisto(
+                                mediaId = item.id,
+                                titulo = item.displayTitle,
+                                tipo = "movie",
+                                posterPath = item.posterPath
+                            )
+                            val saved = com.adp.appsilvant.SupabaseCliente.client.postgrest
+                                .from("media_vistos")
+                                .insert(nuevo)
+                                .decodeSingle<com.adp.appsilvant.data.MediaVisto>()
+                            navController.navigate("media_detail/${'$'}{saved.id}")
+                        } catch (e: Exception) {
+                            // fallback: navegar con un id inválido no tiene sentido; podríamos mostrar snackbar si tuvieramos host
+                        }
                     }
                 }
-            }) {
-                Text("Buscar")
-            }
+            }) { Text("Película Aleatoria") }
+
+            Button(onClick = {
+                scope.launch {
+                    loadTvPopularIfNeeded()
+                    val item = tvPopular.randomOrNull()
+                    if (item != null) {
+                        try {
+                            val nuevo = com.adp.appsilvant.data.MediaVisto(
+                                mediaId = item.id,
+                                titulo = item.displayTitle,
+                                tipo = "tv",
+                                posterPath = item.posterPath
+                            )
+                            val saved = com.adp.appsilvant.SupabaseCliente.client.postgrest
+                                .from("media_vistos")
+                                .insert(nuevo)
+                                .decodeSingle<com.adp.appsilvant.data.MediaVisto>()
+                            navController.navigate("media_detail/${'$'}{saved.id}")
+                        } catch (e: Exception) {
+                            // handle silently for now
+                        }
+                    }
+                }
+            }) { Text("Serie Aleatoria") }
         }
 
-        Spacer(modifier = Modifier.height(16.dp))
+        Spacer(modifier = Modifier.height(12.dp))
 
-        // --- TABS to switch between Search and Saved ---
-        var selectedTabIndex by remember { mutableStateOf(0) }
-        val tabs = listOf("Resultados de Búsqueda", "Mis Vistas")
-        
+        // --- Pestañas ---
+        val tabs = listOf("Populares", "Más Valoradas", "Mis Vistas")
         TabRow(selectedTabIndex = selectedTabIndex) {
             tabs.forEachIndexed { index, title ->
                 Tab(
@@ -102,26 +208,35 @@ fun MediaScreen(navController: NavController) {
             }
         }
 
-        // --- CONTENT AREA ---
+        // --- Contenido de pestañas ---
         when (selectedTabIndex) {
-            0 -> SearchResultsList(searchResults) { item ->
-                val newMedia = MediaVisto(
-                    mediaId = item.id,
-                    titulo = item.displayTitle,
-                    tipo = item.mediaType,
-                    posterPath = item.posterPath
-                )
-                scope.launch {
-                    try {
-                        SupabaseCliente.client.postgrest.from("media_vistos").insert(newMedia)
-                        fetchSavedMedia()
-                        selectedTabIndex = 1
-                    } catch (e: Exception) {
-                        e.printStackTrace()
+            0 -> {
+                when {
+                    isLoadingPopular -> Box(Modifier.fillMaxSize(), contentAlignment = Alignment.Center) { CircularProgressIndicator() }
+                    errorPopular != null -> Text(
+                        text = "Error al cargar Populares: ${'$'}errorPopular",
+                        color = MaterialTheme.colorScheme.error,
+                        modifier = Modifier.padding(16.dp)
+                    )
+                    else -> MediaList(items = populares) { item ->
+                        navController.navigate("media_detail/${item.id.toLong()}")
                     }
                 }
             }
-            1 -> SavedMediaList(navController, savedMedia, isLoading)
+            1 -> {
+                when {
+                    isLoadingTopRated -> Box(Modifier.fillMaxSize(), contentAlignment = Alignment.Center) { CircularProgressIndicator() }
+                    errorTopRated != null -> Text(
+                        text = "Error al cargar Más Valoradas: ${'$'}errorTopRated",
+                        color = MaterialTheme.colorScheme.error,
+                        modifier = Modifier.padding(16.dp)
+                    )
+                    else -> MediaList(items = topRated) { item ->
+                        navController.navigate("media_detail/${item.id.toLong()}")
+                    }
+                }
+            }
+            2 -> SavedMediaList(navController, savedMedia, isLoadingSaved)
         }
     }
 }
@@ -208,6 +323,35 @@ private fun MediaListItem(item: TMDbMediaItem, modifier: Modifier = Modifier) {
             )
             Spacer(modifier = Modifier.width(16.dp))
             Text(item.displayTitle, style = MaterialTheme.typography.titleMedium)
+        }
+    }
+}
+
+
+@Composable
+private fun MediaList(items: List<TMDbMediaItem>, onItemClick: (TMDbMediaItem) -> Unit) {
+    if (items.isEmpty()) {
+        Box(modifier = Modifier.fillMaxSize(), contentAlignment = Alignment.Center) {
+            Text(
+                text = "Sin elementos por ahora.",
+                style = MaterialTheme.typography.bodyLarge,
+                textAlign = TextAlign.Center,
+                modifier = Modifier.padding(32.dp)
+            )
+        }
+    } else {
+        LazyColumn(
+            modifier = Modifier
+                .fillMaxSize()
+                .animateContentSize(),
+            contentPadding = PaddingValues(vertical = 16.dp),
+            verticalArrangement = Arrangement.spacedBy(8.dp)
+        ) {
+            items(items, key = { it.id }) { item ->
+                AnimatedVisibility(visible = true, enter = fadeIn()) {
+                    MediaListItem(item, Modifier.clickable { onItemClick(item) })
+                }
+            }
         }
     }
 }

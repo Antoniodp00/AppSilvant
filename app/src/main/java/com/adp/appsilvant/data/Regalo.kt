@@ -12,5 +12,7 @@ data class Regalo(
     val descripcion: String? = null,
     val tipo: String? = null,
     @SerialName("creado_en")
-    val creadoEn: String? = null
+    val creadoEn: String? = null,
+    @SerialName("fotos_regalos")
+    val fotos: List<FotoRegalo> = emptyList()
 )

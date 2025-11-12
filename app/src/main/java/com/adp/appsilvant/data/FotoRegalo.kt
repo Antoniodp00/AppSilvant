@@ -7,9 +7,9 @@ import kotlinx.serialization.Serializable
 data class FotoRegalo(
     val id: Long = 0,
     @SerialName("regalo_id")
-    val regaloId: Long,
+    val regaloId: Long? = null,
     @SerialName("url_foto")
-    val urlFoto: String,
+    val urlFoto: String? = null,
     @SerialName("descripcion_foto")
     val descripcionFoto: String? = null,
     @SerialName("creado_en")

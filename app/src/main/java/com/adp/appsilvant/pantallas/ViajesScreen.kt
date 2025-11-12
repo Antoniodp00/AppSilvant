@@ -15,10 +15,16 @@ import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.text.style.TextAlign
 import androidx.compose.ui.unit.dp
+import androidx.compose.ui.layout.ContentScale
 import androidx.navigation.NavController
+import coil.compose.AsyncImage
 import com.adp.appsilvant.SupabaseCliente
 import com.adp.appsilvant.data.Viaje
 import io.github.jan.supabase.postgrest.postgrest
+import io.github.jan.supabase.postgrest.query.Columns
+import kotlinx.coroutines.launch
+import androidx.compose.runtime.DisposableEffect
+import androidx.compose.runtime.rememberCoroutineScope
 
 @OptIn(ExperimentalMaterial3Api::class)
 @Composable
@@ -27,12 +33,20 @@ fun ViajesScreen(navController: NavController) {
     var listaViajes by remember { mutableStateOf<List<Viaje>>(emptyList()) }
     var isLoading by remember { mutableStateOf(true) }
 
-    LaunchedEffect(navController.currentBackStackEntry) {
+    fun loadData() {
         isLoading = true
+        try {
+            // Launch in composition-safe way
+            // But since this is quick, use LaunchedEffect scope below
+        } catch (_: Exception) {}
+    }
+
+    // Carga inicial
+    LaunchedEffect(Unit) {
         try {
             val viajes = SupabaseCliente.client.postgrest
                 .from("viajes")
-                .select()
+                .select(columns = Columns.raw("*, fotos_viajes(url_foto,limit=1)"))
                 .decodeList<Viaje>()
             listaViajes = viajes
         } catch (e: Exception) {
@@ -40,6 +54,32 @@ fun ViajesScreen(navController: NavController) {
         } finally {
             isLoading = false
         }
+    }
+
+    // Recargar al volver a la pantalla
+    val lifecycleOwner = androidx.compose.ui.platform.LocalLifecycleOwner.current
+    DisposableEffect(lifecycleOwner) {
+        val observer = androidx.lifecycle.LifecycleEventObserver { _, event ->
+            if (event == androidx.lifecycle.Lifecycle.Event.ON_RESUME) {
+                // Recargar datos
+                val scope = kotlinx.coroutines.CoroutineScope(kotlinx.coroutines.Dispatchers.Main)
+                scope.launch {
+                    isLoading = true
+                    try {
+                        val viajes = SupabaseCliente.client.postgrest
+                            .from("viajes")
+                            .select(columns = Columns.raw("*, fotos_viajes(url_foto,limit=1)"))
+                            .decodeList<Viaje>()
+                        listaViajes = viajes
+                    } catch (_: Exception) {
+                    } finally {
+                        isLoading = false
+                    }
+                }
+            }
+        }
+        lifecycleOwner.lifecycle.addObserver(observer)
+        onDispose { lifecycleOwner.lifecycle.removeObserver(observer) }
     }
 
     Scaffold(
@@ -81,10 +121,18 @@ fun ViajesScreen(navController: NavController) {
                                         navController.navigate("viaje_detail/${viaje.id}") 
                                     }
                             ) {
-                                Column(modifier = Modifier.padding(16.dp)) {
+                                val portada = viaje.fotos.firstOrNull()?.urlFoto
+                                AsyncImage(
+                                    model = portada,
+                                    contentDescription = "Foto de portada del viaje",
+                                    modifier = Modifier
+                                        .fillMaxWidth()
+                                        .height(180.dp),
+                                    contentScale = ContentScale.Crop
+                                )
+                                Column(modifier = Modifier.padding(12.dp)) {
                                     Text(viaje.lugar, style = MaterialTheme.typography.titleMedium)
                                     viaje.fecha?.let { Text(it, style = MaterialTheme.typography.bodySmall) }
-                                    viaje.descripcion?.let { Text(it, style = MaterialTheme.typography.bodySmall) }
                                 }
                             }
                         }

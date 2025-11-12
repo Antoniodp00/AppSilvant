@@ -13,5 +13,7 @@ data class Viaje(
     val fecha: String? = null,
     val descripcion: String? = null,
     @SerialName("creado_en") // Maps the database column 'creado_en' to this field
-    val creadoEn: String? = null
+    val creadoEn: String? = null,
+    @SerialName("fotos_viajes")
+    val fotos: List<FotoViaje> = emptyList()
 )

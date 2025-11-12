@@ -8,10 +8,7 @@ import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.LazyRow
 import androidx.compose.foundation.lazy.items
 import androidx.compose.foundation.shape.CircleShape
-import androidx.compose.material3.Card
-import androidx.compose.material3.CardDefaults
-import androidx.compose.material3.MaterialTheme
-import androidx.compose.material3.Text
+import androidx.compose.material3.*
 import androidx.compose.runtime.*
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
@@ -27,36 +24,52 @@ import coil.compose.AsyncImage
 import com.adp.appsilvant.R
 import com.adp.appsilvant.SupabaseCliente
 import com.adp.appsilvant.data.MediaVisto
+import com.adp.appsilvant.data.Regalo
 import com.adp.appsilvant.data.Viaje
+import com.adp.appsilvant.data.TimelineItem
+import com.adp.appsilvant.data.TimelineType
 import io.github.jan.supabase.postgrest.postgrest
-import io.github.jan.supabase.postgrest.query.Order
-import kotlinx.coroutines.delay
-import java.time.Duration
+import io.github.jan.supabase.postgrest.query.Columns
+import java.time.LocalDate
 import java.time.LocalDateTime
+import java.time.Duration
+import java.time.format.DateTimeFormatter
+import kotlinx.coroutines.delay
 
 @Composable
 fun PantallaPrincipal(navController: NavController) {
 
-    var currentlyWatching by remember { mutableStateOf<List<MediaVisto>>(emptyList()) }
-    var recentTrips by remember { mutableStateOf<List<Viaje>>(emptyList()) }
+    var timelineItems by remember { mutableStateOf<List<TimelineItem>>(emptyList()) }
+    var isLoading by remember { mutableStateOf(true) }
 
-    // Load data for the carousels
+    // Cargar viajes y regalos y combinarlos en una línea de tiempo
     LaunchedEffect(Unit) {
+        isLoading = true
         try {
-            // Fetch currently watching media
-            currentlyWatching = SupabaseCliente.client.postgrest
-                .from("media_vistos")
-                .select { filter { eq("estado", "viendo") } }
-                .decodeList<MediaVisto>()
-
-            // Fetch recent trips
-            recentTrips = SupabaseCliente.client.postgrest
+            val viajes = SupabaseCliente.client.postgrest
                 .from("viajes")
-                .select { order("creado_en", Order.DESCENDING); limit(10) }
+                .select(columns = Columns.raw("*, fotos_viajes(url_foto,limit=1)"))
                 .decodeList<Viaje>()
 
+            val regalos = SupabaseCliente.client.postgrest
+                .from("regalos")
+                .select(columns = Columns.raw("*, fotos_regalos(url_foto,limit=1)"))
+                .decodeList<Regalo>()
+
+            val viajeItems = viajes.mapNotNull { v ->
+                val date = parseLocalDate(v.fecha)
+                date?.let { TimelineItem(type = TimelineType.VIAJE, fecha = it, viaje = v) }
+            }
+            val regaloItems = regalos.mapNotNull { r ->
+                val date = parseLocalDate(r.fecha)
+                date?.let { TimelineItem(type = TimelineType.REGALO, fecha = it, regalo = r) }
+            }
+            timelineItems = (viajeItems + regaloItems).sortedByDescending { it.fecha }
         } catch (e: Exception) {
             e.printStackTrace()
+            timelineItems = emptyList()
+        } finally {
+            isLoading = false
         }
     }
 
@@ -66,39 +79,38 @@ fun PantallaPrincipal(navController: NavController) {
             .animateContentSize(),
         horizontalAlignment = Alignment.CenterHorizontally
     ) {
-        // Top Counter Section
+        // Sección superior del contador
         item {
             ContadorSection()
         }
 
-        // Currently Watching Carousel
-        if (currentlyWatching.isNotEmpty()) {
+        // Cuerpo de la línea de tiempo
+        item { Spacer(modifier = Modifier.height(8.dp)) }
+        if (isLoading) {
             item {
-                DashboardCarousel(
-                    title = "Viendo Actualmente",
-                    items = currentlyWatching,
-                    itemContent = { media ->
-                        MediaCarouselItem(media) { 
-                            navController.navigate("media_detail/${media.id}") 
-                        }
-                    }
+                Box(modifier = Modifier.fillMaxWidth().padding(24.dp), contentAlignment = Alignment.Center) {
+                    CircularProgressIndicator()
+                }
+            }
+        } else if (timelineItems.isEmpty()) {
+            item {
+                Text(
+                    text = "No hay elementos todavía.",
+                    style = MaterialTheme.typography.bodyLarge,
+                    textAlign = TextAlign.Center,
+                    modifier = Modifier.padding(32.dp)
                 )
             }
-        }
-
-        // Recent Trips Carousel
-        if (recentTrips.isNotEmpty()) {
-            item {
-                DashboardCarousel(
-                    title = "Últimos Viajes",
-                    items = recentTrips,
-                    itemContent = { viaje ->
-                        ViajeCarouselItem(viaje) { 
-                            navController.navigate("viaje_detail/${viaje.id}")
-                        }
+        } else {
+            items(timelineItems) { item ->
+                TimelineCard(item = item, onClick = {
+                    when (item.type) {
+                        TimelineType.VIAJE -> item.viaje?.let { navController.navigate("viaje_detail/${it.id}") }
+                        TimelineType.REGALO -> item.regalo?.let { navController.navigate("regalo_detail/${it.id}") }
                     }
-                )
+                })
             }
+            item { Spacer(modifier = Modifier.height(16.dp)) }
         }
     }
 }
@@ -139,70 +151,71 @@ private fun ContadorSection() {
 }
 
 @Composable
-fun <T> DashboardCarousel(
-    title: String,
-    items: List<T>,
-    itemContent: @Composable (T) -> Unit
-) {
-    Column {
-        Text(
-            text = title,
-            style = MaterialTheme.typography.titleLarge,
-            modifier = Modifier.padding(horizontal = 16.dp, vertical = 8.dp)
-        )
-        LazyRow(
-            contentPadding = PaddingValues(horizontal = 16.dp),
-            horizontalArrangement = Arrangement.spacedBy(16.dp)
-        ) {
-            items(items) {
-                itemContent(it)
+private fun TimelineCard(item: TimelineItem, onClick: () -> Unit) {
+    OutlinedCard(
+        modifier = Modifier
+            .fillMaxWidth()
+            .padding(horizontal = 16.dp)
+            .clickable(onClick = onClick)
+    ) {
+        when (item.type) {
+            TimelineType.VIAJE -> {
+                val viaje = item.viaje!!
+                val portada = viaje.fotos.firstOrNull()?.urlFoto
+                AsyncImage(
+                    model = portada,
+                    contentDescription = "Foto de portada del viaje",
+                    modifier = Modifier
+                        .fillMaxWidth()
+                        .height(180.dp),
+                    contentScale = ContentScale.Crop
+                )
+                Column(modifier = Modifier.padding(12.dp)) {
+                    Text(viaje.lugar, style = MaterialTheme.typography.titleMedium)
+                    viaje.fecha?.let { Text(it, style = MaterialTheme.typography.bodySmall) }
+                }
+            }
+            TimelineType.REGALO -> {
+                val regalo = item.regalo!!
+                val portada = regalo.fotos.firstOrNull()?.urlFoto
+                AsyncImage(
+                    model = portada,
+                    contentDescription = "Foto de portada del regalo",
+                    modifier = Modifier
+                        .fillMaxWidth()
+                        .height(180.dp),
+                    contentScale = ContentScale.Crop
+                )
+                Column(modifier = Modifier.padding(12.dp)) {
+                    Text(regalo.nombreRegalo, style = MaterialTheme.typography.titleMedium)
+                    regalo.fecha?.let { Text(it, style = MaterialTheme.typography.bodySmall) }
+                }
             }
         }
     }
 }
 
-@Composable
-private fun MediaCarouselItem(media: MediaVisto, onClick: () -> Unit) {
-    Card(
-        modifier = Modifier
-            .width(140.dp)
-            .clickable(onClick = onClick),
-        elevation = CardDefaults.cardElevation(4.dp)
-    ) {
-        Column {
-            AsyncImage(
-                model = "https://image.tmdb.org/t/p/w500${media.posterPath}",
-                contentDescription = media.titulo,
-                contentScale = ContentScale.Crop,
-                modifier = Modifier.height(200.dp)
-            )
-            Text(
-                text = media.titulo,
-                style = MaterialTheme.typography.bodyMedium,
-                maxLines = 1,
-                modifier = Modifier.padding(8.dp)
-            )
-        }
+private fun parseLocalDate(fechaStr: String?): LocalDate? {
+    if (fechaStr.isNullOrBlank()) return null
+    val patterns = listOf(
+        "yyyy-MM-dd",
+        "dd/MM/yyyy",
+        "yyyy-MM-dd'T'HH:mm:ss'Z'",
+        "yyyy-MM-dd HH:mm:ss"
+    )
+    for (p in patterns) {
+        try {
+            val fmt = DateTimeFormatter.ofPattern(p)
+            return when (p) {
+                "yyyy-MM-dd" , "dd/MM/yyyy" -> LocalDate.parse(fechaStr, fmt)
+                else -> LocalDate.parse(fechaStr.substring(0, 10))
+            }
+        } catch (_: Exception) { /* try next */ }
     }
-}
-
-@Composable
-private fun ViajeCarouselItem(viaje: Viaje, onClick: () -> Unit) {
-    Card(
-        modifier = Modifier
-            .width(200.dp)
-            .height(120.dp)
-            .clickable(onClick = onClick),
-        elevation = CardDefaults.cardElevation(4.dp)
-    ) {
-        Box(modifier = Modifier.fillMaxSize(), contentAlignment = Alignment.Center) {
-            Text(
-                text = viaje.lugar,
-                style = MaterialTheme.typography.titleMedium,
-                textAlign = TextAlign.Center,
-                modifier = Modifier.padding(8.dp)
-            )
-        }
+    return try {
+        LocalDate.parse(fechaStr)
+    } catch (_: Exception) {
+        null
     }
 }
 
@@ -226,6 +239,6 @@ private fun obtenerTextoDuracion(inicio: LocalDateTime): String {
     val dias = duracion.toDays()
     val horas = duracion.toHours() % 24
     val minutos = duracion.toMinutes() % 60
-    val segundos = duracion.toSeconds() % 60
+    val segundos = (duracion.seconds % 60)
     return "$dias días\n$horas horas, $minutos minutos y $segundos segundos"
 }

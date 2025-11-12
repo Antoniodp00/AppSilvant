@@ -3,10 +3,10 @@ package com.adp.appsilvant.data
 import kotlinx.serialization.SerialName
 import kotlinx.serialization.Serializable
 
-// Represents the overall search result from TMDb
+// Represents the overall search result from TMDb (generic paged response)
 @Serializable
-data class TMDbSearchResponse(
-    val results: List<TMDbMediaItem>
+data class PagedResponse<T>(
+    val results: List<T> = emptyList()
 )
 
 // Represents a single item (movie or TV show) in the search results
@@ -27,3 +27,18 @@ data class TMDbMediaItem(
     val displayTitle: String
         get() = title ?: name ?: "Título no disponible"
 }
+
+// Minimal models for TMDb lists
+@Serializable
+data class MovieResult(
+    val id: Int,
+    val title: String? = null,
+    @SerialName("poster_path") val posterPath: String? = null
+)
+
+@Serializable
+data class TvResult(
+    val id: Int,
+    val name: String? = null,
+    @SerialName("poster_path") val posterPath: String? = null
+)

@@ -15,10 +15,13 @@ import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.text.style.TextAlign
 import androidx.compose.ui.unit.dp
+import androidx.compose.ui.layout.ContentScale
 import androidx.navigation.NavController
+import coil.compose.AsyncImage
 import com.adp.appsilvant.SupabaseCliente
 import com.adp.appsilvant.data.Regalo
 import io.github.jan.supabase.postgrest.postgrest
+import io.github.jan.supabase.postgrest.query.Columns
 
 @OptIn(ExperimentalMaterial3Api::class)
 @Composable
@@ -32,7 +35,7 @@ fun RegalosScreen(navController: NavController) {
         try {
             val regalos = SupabaseCliente.client.postgrest
                 .from("regalos")
-                .select()
+                .select(columns = Columns.raw("*, fotos_regalos(url_foto,limit=1)"))
                 .decodeList<Regalo>()
             listaRegalos = regalos
         } catch (e: Exception) {
@@ -81,11 +84,18 @@ fun RegalosScreen(navController: NavController) {
                                         navController.navigate("regalo_detail/${regalo.id}") 
                                     }
                             ) {
-                                Column(modifier = Modifier.padding(16.dp)) {
+                                val portada = regalo.fotos.firstOrNull()?.urlFoto
+                                AsyncImage(
+                                    model = portada,
+                                    contentDescription = "Foto de portada del regalo",
+                                    modifier = Modifier
+                                        .fillMaxWidth()
+                                        .height(180.dp),
+                                    contentScale = ContentScale.Crop
+                                )
+                                Column(modifier = Modifier.padding(12.dp)) {
                                     Text(regalo.nombreRegalo, style = MaterialTheme.typography.titleMedium)
                                     regalo.fecha?.let { Text(it, style = MaterialTheme.typography.bodySmall) }
-                                    regalo.descripcion?.let { Text(it, style = MaterialTheme.typography.bodySmall) }
-                                    regalo.tipo?.let { Text("Tipo: $it", style = MaterialTheme.typography.bodySmall) }
                                 }
                             }
                         }
